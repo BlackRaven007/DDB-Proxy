@@ -9,8 +9,8 @@
     }
   ],
   "compatibility": {
-    "minimum": "11",
-    "verified": "13"
+    "minimum": "14",
+    "verified": "14.364"
   },
   "url": "https://github.com/BlackRaven007/DDB-Proxy",
   "manifest": "https://raw.githubusercontent.com/BlackRaven007/DDB-Proxy/main/module.json",
