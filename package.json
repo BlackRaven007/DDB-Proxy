@@ -1,0 +1,22 @@
+{
+  "name": "ddb-proxy",
+  "version": "0.0.25",
+  "main": "index.js",
+  "license": "MIT",
+  "scripts": {
+    "lint": "npx eslint ./",
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "build": "webpack"
+  },
+  "dependencies": {
+    "cors": "^2.8.5",
+    "express": "^4.17.1",
+    "node-fetch": "^2.6.0",
+    "yarn": "^1.22.17"
+  },
+  "devDependencies": {
+    "eslint": "^8.10.0",
+    "eslint-config-prettier": "^8.4.0",
+    "prettier": "2.0.5"
+  }
+}
