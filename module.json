@@ -1,0 +1,18 @@
+{
+  "id": "ddb-proxy",
+  "title": "DDB Proxy",
+  "description": "A custom D&D Beyond proxy package for Foundry VTT workflows.",
+  "version": "0.0.0",
+  "authors": [
+    {
+      "name": "BlackRaven007"
+    }
+  ],
+  "compatibility": {
+    "minimum": "11",
+    "verified": "13"
+  },
+  "url": "https://github.com/BlackRaven007/DDB-Proxy",
+  "manifest": "https://raw.githubusercontent.com/BlackRaven007/DDB-Proxy/main/module.json",
+  "download": "https://github.com/BlackRaven007/DDB-Proxy/releases/latest/download/module.zip"
+}
