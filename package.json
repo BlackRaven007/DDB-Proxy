@@ -5,7 +5,9 @@
   "license": "MIT",
   "scripts": {
     "lint": "npx eslint ./",
-    "test": "echo \"Error: no test specified\" && exit 1",
+    "test": "node --test tests/httpClient.test.js",
+    "test:integration": "node --test tests/integration/smoke.test.js",
+    "typecheck": "node --check index.js",
     "build": "webpack"
   },
   "dependencies": {

@@ -1,6 +1,6 @@
-const fetch = require("node-fetch");
 const CONFIG = require("./config.js");
 const authentication = require("./auth.js");
+const { fetchJsonWithRetry } = require("./httpClient");
 
 const isValidData = data => {
   return data.success === true;
@@ -33,10 +33,14 @@ const extractClassOptions = (cobaltId, optionIds=[], campaignId=null) => {
       body: body
     };
 
-    fetch(url, options)
-      .then(res => res.json())
-      .then(json => {
-        if (isValidData(json)) {
+    fetchJsonWithRetry(url, options, {
+      retries: 2,
+      timeoutMs: 15000,
+      retryDelayMs: 250,
+      requestKey: `class-options:${cobaltId}:${optionIds.join("-")}`,
+    })
+      .then(({ data: json, ok }) => {
+        if (ok && isValidData(json)) {
           const filteredItems = json.data.definitionData.filter(option =>
             option.sources && (option.sources.length === 0 || option.sources.some((source) => source.sourceId != 39))
           );
@@ -81,10 +85,14 @@ const extractRacialTraitsOptions = (cobaltId, optionIds=[], campaignId=null) => 
       body: body
     };
 
-    fetch(url, options)
-      .then(res => res.json())
-      .then(json => {
-        if (isValidData(json)) {
+    fetchJsonWithRetry(url, options, {
+      retries: 2,
+      timeoutMs: 15000,
+      retryDelayMs: 250,
+      requestKey: `origin-options:${cobaltId}:${optionIds.join("-")}`,
+    })
+      .then(({ data: json, ok }) => {
+        if (ok && isValidData(json)) {
           const filteredItems = json.data.definitionData.filter(option =>
             option.sources && (option.sources.length === 0 || option.sources.some((source) => source.sourceId != 39))
           );
@@ -102,15 +110,6 @@ const extractRacialTraitsOptions = (cobaltId, optionIds=[], campaignId=null) => 
   });
 };
 
-const checkStatus = res => {
-  if (res.ok) {
-    // res.status >= 200 && res.status < 300
-    return res;
-  } else {
-    throw res.statusText;
-  }
-};
-
 const extractCharacterData = (cobaltId, characterId) => {
   return new Promise((resolve, reject) => {
     console.log(`Retrieving character id ${characterId}`);
@@ -118,11 +117,14 @@ const extractCharacterData = (cobaltId, characterId) => {
     const auth = authentication.CACHE_AUTH.exists(cobaltId);
     const headers = (auth) ? {headers: {"Authorization": `Bearer ${auth.data}`}} : {};
     const characterUrl = CONFIG.urls.characterUrl(characterId);
-    fetch(characterUrl, headers)
-      .then(checkStatus)
-      .then(res => res.json())
-      .then(json => {
-        if (isValidData(json)) {
+    fetchJsonWithRetry(characterUrl, headers, {
+      retries: 2,
+      timeoutMs: 20000,
+      retryDelayMs: 300,
+      requestKey: `character:${cobaltId}:${characterId}`,
+    })
+      .then(({ data: json, ok }) => {
+        if (ok && isValidData(json)) {
           resolve(json.data);
         } else {
           reject(json.message);

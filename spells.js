@@ -1,6 +1,6 @@
-const fetch = require("node-fetch");
 const CONFIG = require("./config.js");
 const authentication = require("./auth.js");
+const { fetchJsonWithRetry } = require("./httpClient");
 
 const isValidData = data => {
   return data.success === true;
@@ -30,11 +30,15 @@ const extractSpells = (classInfo, cobaltId) => {
 
     const url = CONFIG.urls.spellsAPI(id, 20, classInfo.campaignId);
     const headers = (authentication.CACHE_AUTH.exists(cobaltId).data !== null) ? {headers: {"Authorization": `Bearer ${authentication.CACHE_AUTH.exists(cobaltId).data}`}} : {};
-    fetch(url, headers)
-      .then(res => res.json())
-      .then(json => {
+    fetchJsonWithRetry(url, headers, {
+      retries: 2,
+      timeoutMs: 20000,
+      retryDelayMs: 300,
+      requestKey: `spells:${cobaltId}:${id}:${classInfo.campaignId ?? "none"}`,
+    })
+      .then(({ data: json, ok }) => {
         // console.log(json.data.map(sp => sp.definition.name).join(", "));
-        if (isValidData(json)) {
+        if (ok && isValidData(json)) {
           const filteredSpells = filterByLevel(json.data, spellLevelAccess).filter(item => {
             if (item.definition.sources && item.definition.sources.some((source) => source.sourceId === 39)) {
               return false;
@@ -65,11 +69,15 @@ const extractAlwaysPreparedSpells = (classInfo, spellListIds=[]) => {
     console.log(`Retrieving always prepared spells for ${name} (${id}) at spell level ${spellLevelAccess}`);
 
     const url = CONFIG.urls.alwaysPreparedSpells(id, 20, classInfo.campaignId, spellListIds);
-    fetch(url)
-      .then(res => res.json())
-      .then(json => {
+    fetchJsonWithRetry(url, {}, {
+      retries: 2,
+      timeoutMs: 20000,
+      retryDelayMs: 300,
+      requestKey: `always-prepared:${id}:${classInfo.campaignId ?? "none"}:${spellListIds.join("-")}`,
+    })
+      .then(({ data: json, ok }) => {
         // console.log(json.data.map(sp => sp.definition.name).join(", "));
-        if (isValidData(json)) {
+        if (ok && isValidData(json)) {
           const filteredSpells = filterByLevel(json.data, spellLevelAccess).filter(item => {
             if (item.definition.sources && item.definition.sources.some((source) => source.sourceId === 39)) {
               return false;
@@ -104,11 +112,15 @@ const extractAlwaysKnownSpells = (classInfo, cobaltId, cantrips, spellListIds=[]
     console.log(url);
     // console.log(`Bearer ${authentication.CACHE_AUTH.exists(cobaltId).data}`);
     const headers = (authentication.CACHE_AUTH.exists(cobaltId).data !== null) ? {headers: {"Authorization": `Bearer ${authentication.CACHE_AUTH.exists(cobaltId).data}`}} : {};
-    fetch(url, headers)
-      .then(res => res.json())
-      .then(json => {
+    fetchJsonWithRetry(url, headers, {
+      retries: 2,
+      timeoutMs: 20000,
+      retryDelayMs: 300,
+      requestKey: `always-known:${cobaltId}:${id}:${classInfo.campaignId ?? "none"}:${spellListIds.join("-")}`,
+    })
+      .then(({ data: json, ok }) => {
         // console.log(json.data.map(sp => sp.definition.name).join(", "));
-        if (isValidData(json)) {
+        if (ok && isValidData(json)) {
           const noCantripSpells = (cantrips) ? json.data : removeCantrips(json.data);
           const filteredSpells = filterByLevel(noCantripSpells, spellLevelAccess).filter(item => {
             if (item.definition.sources && item.definition.sources.some((source) => source.sourceId === 39)) {

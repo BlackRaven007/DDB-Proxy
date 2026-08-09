@@ -1,14 +1,22 @@
-const fetch = require("node-fetch");
 const CONFIG = require("./config.js");
 const authentication = require("./auth.js");
+const { fetchJsonWithRetry } = require("./httpClient");
 
 function getMonsterCount(cobaltId, searchTerm="", homebrew, homebrewOnly, sources) {
   return new Promise((resolve, reject) => {
     const headers = (authentication.CACHE_AUTH.exists(cobaltId).data !== null) ? {headers: {"Authorization": `Bearer ${authentication.CACHE_AUTH.exists(cobaltId).data}`}} : {};
     const url = CONFIG.urls.monstersAPI(0,1, searchTerm, homebrew, homebrewOnly, sources);
-    fetch(url, headers)
-      .then(res => res.json())
-      .then(json => {
+    fetchJsonWithRetry(url, headers, {
+      retries: 2,
+      timeoutMs: 20000,
+      retryDelayMs: 300,
+      requestKey: `monster-count:${cobaltId}:${searchTerm}:${homebrew}:${homebrewOnly}:${sources.join("-")}`,
+    })
+      .then(({ data: json, ok }) => {
+        if (!ok) {
+          reject(`Monster count lookup failed`);
+          return;
+        }
         resolve(json.pagination.total);
       })
       .catch(error => {
@@ -51,9 +59,14 @@ const extractMonsters = (cobaltId, searchTerm="", homebrew, homebrewOnly, source
       while (total >= count && hardTotal >= count) {
         console.log(`Fetching monsters ${count}`);
         const url = CONFIG.urls.monstersAPI(count,take,searchTerm, homebrew, homebrewOnly, sources);
-        await fetch(url, headers)
-          .then(res => res.json())
-          .then(json => {
+        await fetchJsonWithRetry(url, headers, {
+          retries: 2,
+          timeoutMs: 20000,
+          retryDelayMs: 300,
+          requestKey: `monsters:${cobaltId}:${count}:${take}:${searchTerm}:${homebrew}:${homebrewOnly}:${sources.join("-")}`,
+        })
+          .then(({ data: json, ok }) => {
+            if (!ok) throw new Error(`Monster page fetch failed at offset ${count}`);
             const availableMonsters = json.data.filter((monster) => {
               const isHomebrew = (homebrew) ? monster.isHomebrew === true : false;
               const available = monster.isReleased === true || isHomebrew;
@@ -105,9 +118,14 @@ function extractMonstersById (cobaltId, ids) {
             ? { headers: { Authorization: `Bearer ${authentication.CACHE_AUTH.exists(cobaltId).data}` } }
             : {};
         const url = CONFIG.urls.monsterIdsAPI(idSelection);
-        await fetch(url, headers)
-          .then((res) => res.json())
-          .then((json) => {
+        await fetchJsonWithRetry(url, headers, {
+          retries: 2,
+          timeoutMs: 20000,
+          retryDelayMs: 300,
+          requestKey: `monsters-by-id:${cobaltId}:${idSelection.join("-")}`,
+        })
+          .then(({ data: json, ok }) => {
+            if (!ok) throw new Error("Monster by-id fetch failed");
             // console.log(json.data);
             const availableMonsters = json.data.filter((monster) => monster.isReleased === true || monster.isHomebrew);
             const imageFiddledMonsters = imageFiddleMonsters(availableMonsters);

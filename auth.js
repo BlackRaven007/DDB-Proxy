@@ -1,7 +1,7 @@
 const crypto = require("crypto");
 const Cache = require("./cache");
-const fetch = require("node-fetch");
 const CONFIG = require("./config.js");
+const { fetchJsonWithRetry } = require("./httpClient");
 
 var CACHE_AUTH = new Cache("AUTH", 0.08);
 
@@ -13,31 +13,42 @@ function isJSON(str) {
   }
 }
 
-function getBearerToken(id, cobalt) {
-  return new Promise((resolve) => {
-    if (cobalt && cobalt !== "" && !isJSON(`{ "cobalt": "${cobalt}" }`)) {
+async function getBearerToken(id, cobalt) {
+  try {
+    if (!cobalt || cobalt === "") {
+      console.log("NO COBALT TOKEN");
+      return null;
+    }
+
+    if (!isJSON(`{ "cobalt": "${cobalt}" }`)) {
       console.log(`Invalid token for ${id}`);
       return null;
-    } else if (cobalt && cobalt !== "") {
-      fetch(CONFIG.urls.authService, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Cookie: `CobaltSession=${cobalt}`,
-        },
-      })
-        .then((response) => response.json())
-        .then((data) => {
-          if (!data.token || !data.token.length) resolve(null);
-          CACHE_AUTH.add(id, data.token);
-          resolve(data.token);
-        });
-    } else {
-      console.log("NO COBALT TOKEN");
-      resolve(null);
-      //reject('No cobaltID token!');
     }
-  });
+
+    const response = await fetchJsonWithRetry(CONFIG.urls.authService, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Cookie: `CobaltSession=${cobalt}`,
+      },
+    }, {
+      retries: 2,
+      timeoutMs: 12000,
+      retryDelayMs: 250,
+    });
+
+    const data = response.data;
+    if (!response.ok || !data?.token || !data.token.length) {
+      return null;
+    }
+
+    CACHE_AUTH.add(id, data.token);
+    return data.token;
+  } catch (error) {
+    console.log(`Error retrieving bearer token for ${id}`);
+    console.log(error);
+    return null;
+  }
 }
 
 

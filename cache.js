@@ -6,6 +6,7 @@ class Cache {
     this.items = [];
     this.name = name;
     this.expiration = expiration; // expiration in hours
+    this.inFlight = new Map();
   }
 
   exists(id) {
@@ -34,6 +35,28 @@ class Cache {
       lastUpdate: new Date().valueOf(),
       data: data,
     });
+  }
+
+  async getOrCreate(id, producer) {
+    const existing = this.exists(id);
+    if (existing !== undefined) return existing.data;
+
+    if (this.inFlight.has(id)) {
+      return this.inFlight.get(id);
+    }
+
+    const promise = Promise.resolve()
+      .then(() => producer())
+      .then((data) => {
+        this.add(id, data);
+        return data;
+      })
+      .finally(() => {
+        this.inFlight.delete(id);
+      });
+
+    this.inFlight.set(id, promise);
+    return promise;
   }
 }
 

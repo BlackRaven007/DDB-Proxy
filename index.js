@@ -4,6 +4,7 @@ const crypto = require("crypto");
 
 const CONFIG = require("./config.js");
 const authentication = require("./auth.js");
+const { getHttpQueueStats, runWithCorrelationId } = require("./httpClient");
 
 const filterModifiers = require("./filterModifiers.js");
 const lookup = require("./lookup.js");
@@ -17,10 +18,47 @@ const campaign = require("./campaign.js");
 const app = express();
 const port = process.env.PORT || 3000;
 
+app.use((req, res, next) => {
+  const incoming = req.headers["x-correlation-id"];
+  const correlationId = typeof incoming === "string" && incoming.trim() !== ""
+    ? incoming
+    : `proxy-${crypto.randomUUID()}`;
+  req.correlationId = correlationId;
+  res.setHeader("x-correlation-id", correlationId);
+  runWithCorrelationId(correlationId, () => next());
+});
+
 /**
  * A simple ping to tell if the proxy is running
  */
 app.get("/ping", cors(), (req, res) => res.send("pong"));
+
+app.get("/healthz", cors(), (req, res) => {
+  return res.status(200).json({
+    success: true,
+    status: "ok",
+    uptimeSeconds: Math.round(process.uptime()),
+    queue: getHttpQueueStats(),
+  });
+});
+
+app.get("/readyz", cors(), async (_req, res) => {
+  try {
+    await lookup.getConfig();
+    return res.status(200).json({
+      success: true,
+      status: "ready",
+      queue: getHttpQueueStats(),
+    });
+  } catch (error) {
+    return res.status(503).json({
+      success: false,
+      status: "not-ready",
+      message: String(error),
+      queue: getHttpQueueStats(),
+    });
+  }
+});
 
 const authPath = ["/proxy/auth"];
 app.options(authPath, cors(), (req, res) => res.status(200).send());

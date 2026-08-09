@@ -1,21 +1,17 @@
 // This data is the light version of data available in the character builder
-const fetch = require("node-fetch");
 const CONFIG = require("./config.js");
 const authentication = require("./auth.js");
 const Cache = require("./cache");
+const { fetchJsonWithRetry } = require("./httpClient");
 var CACHE_CAMPAIGNS = new Cache("CAMPAIGNS", 0.25);
 
 // this endpoint aggressively caches campaigns as it's prone to been marked as a bot
 const getCampaigns = (cobalt, cacheId) => {
   return new Promise((resolve, reject) => {
-    const cache = CACHE_CAMPAIGNS.exists(cacheId);
-    if (cache !== undefined) {
-      return resolve(cache.data);
-    }
-
     const auth = authentication.CACHE_AUTH.exists(cacheId);
     if (!auth || !auth.data) {
       reject("Unable to authorise cobalt cookie");
+      return;
     }
 
     const headers = {
@@ -31,11 +27,18 @@ const getCampaigns = (cobalt, cacheId) => {
       headers: headers,
     };
 
-    fetch(CONFIG.urls.campaignsAPI, options)
-      .then((res) => res.json())
+    CACHE_CAMPAIGNS.getOrCreate(cacheId, async () => {
+      const response = await fetchJsonWithRetry(CONFIG.urls.campaignsAPI, options, {
+        retries: 2,
+        timeoutMs: 20000,
+        retryDelayMs: 300,
+        requestKey: `campaigns:${cacheId}`,
+      });
+      if (!response.ok) throw new Error(`Campaign API returned status ${response.status}`);
+      return response.data;
+    })
       .then((json) => {
         if (json.status == "success") {
-          CACHE_CAMPAIGNS.add(cacheId, json.data);
           resolve(json.data);
         } else if (json.blockScript) {
           reject("You've been marked as a bot by DDB, please try again later");
