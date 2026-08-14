@@ -10,7 +10,13 @@ class Cache {
   }
 
   exists(id) {
-    return this.items.find(cache => cache.id === id && !this.isExpired(cache.lastUpdate));
+    const result = this.items.find(cache => cache.id === id && !this.isExpired(cache.lastUpdate));
+    if (result) {
+      console.log(`[ddb-proxy] [cache:${this.name}] Cache hit for ${id}`);
+    } else {
+      console.log(`[ddb-proxy] [cache:${this.name}] Cache miss for ${id}`);
+    }
+    return result;
   }
 
   isExpired(timestamp) {
@@ -22,11 +28,11 @@ class Cache {
     const isString = typeof data === "string" || data instanceof String;
     const isObject = typeof data === "object";
     if (!data || ((isArray || isString) && !data.length) || (!isArray && !isString && !isObject)) return null;
-    console.log(`[CACHE ${this.name}] Adding to the Cache (ID: ${id}): ${data.length} items.`);
+    console.log(`[ddb-proxy] [cache:${this.name}] Adding to the cache (ID: ${id}): ${Array.isArray(data) ? data.length : 1} item(s).`);
 
     const index = this.items.find(cache => cache.id === id);
     if (index) {
-      console.log(`[CACHE ${this.name}] Removing expired entry from cache`);
+      console.log(`[ddb-proxy] [cache:${this.name}] Removing expired entry from cache`);
       this.items = this.items.filter(cache => cache.id !== id);
     }
 

@@ -14,6 +14,7 @@ const character = require("./character.js");
 const items = require("./items.js");
 const monsters = require("./monsters.js");
 const campaign = require("./campaign.js");
+const { imageProxyHandler } = require("./image.js");
 
 const app = express();
 const port = process.env.PORT || 3000;
@@ -32,6 +33,14 @@ app.use((req, res, next) => {
  * A simple ping to tell if the proxy is running
  */
 app.get("/ping", cors(), (req, res) => res.send("pong"));
+
+/**
+ * Image / CORS proxy.
+ * ddb-importer requests images as: <endpoint>/ddb/<host>/<path...>
+ * (see cors-path-prefix + cors-strip-protocol settings client-side)
+ */
+app.options("/ddb/:host/*", cors(), (req, res) => res.status(200).send());
+app.get("/ddb/:host/*", cors(), imageProxyHandler);
 
 app.get("/healthz", cors(), (req, res) => {
   return res.status(200).json({

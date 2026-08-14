@@ -26,7 +26,7 @@ const extractSpells = (classInfo, cobaltId) => {
   return new Promise((resolve, reject) => {
     const { name, id, spellLevelAccess } = classInfo;
 
-    console.log(`Retrieving all spells for ${name} ${cobaltId} (${id}) at spell level ${spellLevelAccess}`);
+    console.log(`[ddb-proxy] [spells] Retrieving class spells for ${name} (${cobaltId}) at spell level ${spellLevelAccess}`);
 
     const url = CONFIG.urls.spellsAPI(id, 20, classInfo.campaignId);
     const headers = (authentication.CACHE_AUTH.exists(cobaltId).data !== null) ? {headers: {"Authorization": `Bearer ${authentication.CACHE_AUTH.exists(cobaltId).data}`}} : {};
@@ -47,7 +47,7 @@ const extractSpells = (classInfo, cobaltId) => {
             }
           });
           console.log(
-            `Adding ${filteredSpells.length} of ${json.data.length} spells available to a lvl${spellLevelAccess} ${classInfo.name} caster...`
+            `[ddb-proxy] [spells] Added ${filteredSpells.length} of ${json.data.length} spells for lvl${spellLevelAccess} ${classInfo.name}`
           );
           resolve(filteredSpells);
         } else {
@@ -66,7 +66,7 @@ const extractSpells = (classInfo, cobaltId) => {
 const extractAlwaysPreparedSpells = (classInfo, spellListIds=[]) => {
   return new Promise((resolve, reject) => {
     const { name, id, spellLevelAccess } = classInfo;
-    console.log(`Retrieving always prepared spells for ${name} (${id}) at spell level ${spellLevelAccess}`);
+    console.log(`[ddb-proxy] [spells] Retrieving always-prepared spells for ${name} (${id}) at spell level ${spellLevelAccess}`);
 
     const url = CONFIG.urls.alwaysPreparedSpells(id, 20, classInfo.campaignId, spellListIds);
     fetchJsonWithRetry(url, {}, {
@@ -86,7 +86,7 @@ const extractAlwaysPreparedSpells = (classInfo, spellListIds=[]) => {
             }
           });
           console.log(
-            `Adding ${filteredSpells.length} of ${json.data.length} allways prepared spells available to a lvl${spellLevelAccess} ${classInfo.name} caster...`
+            `[ddb-proxy] [spells] Added ${filteredSpells.length} of ${json.data.length} always-prepared spells for lvl${spellLevelAccess} ${classInfo.name}`
           );
           resolve(filteredSpells);
         } else {
@@ -103,13 +103,13 @@ const extractAlwaysPreparedSpells = (classInfo, spellListIds=[]) => {
 };
 
 const extractAlwaysKnownSpells = (classInfo, cobaltId, cantrips, spellListIds=[]) => {
-  console.log(`SPELL IDS ${spellListIds}`);
+  console.log(`[ddb-proxy] [spells] Spell list ids: ${spellListIds.join(",") || "none"}`);
   return new Promise((resolve, reject) => {
     const { name, id, spellLevelAccess } = classInfo;
-    console.log(`Retrieving all known spells for ${name} (${id}) at spell level ${spellLevelAccess}`);
+    console.log(`[ddb-proxy] [spells] Retrieving always-known spells for ${name} (${id}) at spell level ${spellLevelAccess}`);
 
     const url = CONFIG.urls.alwaysKnownSpells(id, 20, classInfo.campaignId, spellListIds, classInfo.backgroundId);
-    console.log(url);
+    console.log(`[ddb-proxy] [spells] Always-known spell URL: ${url}`);
     // console.log(`Bearer ${authentication.CACHE_AUTH.exists(cobaltId).data}`);
     const headers = (authentication.CACHE_AUTH.exists(cobaltId).data !== null) ? {headers: {"Authorization": `Bearer ${authentication.CACHE_AUTH.exists(cobaltId).data}`}} : {};
     fetchJsonWithRetry(url, headers, {
@@ -130,7 +130,7 @@ const extractAlwaysKnownSpells = (classInfo, cobaltId, cantrips, spellListIds=[]
             }
           });
           console.log(
-            `Adding ${filteredSpells.length} of ${json.data.length} always known spells available to a lvl${spellLevelAccess} ${classInfo.name} caster...`
+            `[ddb-proxy] [spells] Added ${filteredSpells.length} of ${json.data.length} always-known spells for lvl${spellLevelAccess} ${classInfo.name}`
           );
           resolve(filteredSpells);
         } else {
@@ -263,7 +263,7 @@ const loadSpells = (classInfo, cobaltToken, cantrips) => {
 function getSpellAdditions(data, cacheId) {
   return new Promise((resolve) => {
     const classInfo = extractClassIds(data);
-    console.log("CLASS INFORMATION FOR SPELL ADDITIONS:");
+console.log("[ddb-proxy] [spells] Class spell addition info:");
     console.log(classInfo);
 
     loadSpellAdditions(classInfo, cacheId).then(classInfo => {
@@ -276,14 +276,13 @@ function getSpellAdditions(data, cacheId) {
 
         if (additionalSpells) {
           additionalSpells.spells.forEach(spell => {
-            console.log("Adding spells to character...");
-            console.log(" + Adding spell to character: " + spell.definition.name);
+            console.log(`[ddb-proxy] [spells] Adding spell to character: ${spell.definition.name}`);
             classSpells.spells.push(spell);
           });
         }
         return classSpells;
       });
-      console.log("******** ADDITIONAL SPELL LOAD FINISHED ***********");
+      console.log("[ddb-proxy] [spells] Additional spell loading finished");
       resolve(data);
     });
   });

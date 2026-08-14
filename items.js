@@ -10,9 +10,9 @@ const isValidData = data => {
 
 const extractItems = (cobaltId, campaignId) => {
   return new Promise((resolve, reject) => {
-    console.log(`Retrieving items for ${cobaltId}`);
+    console.log(`[ddb-proxy] [items] Retrieving items for ${cobaltId}`);
 
-    console.log("ITEMS API CACHE_ITEMS MISS!");
+    console.log("[ddb-proxy] [items] Items API cache miss");
     const url = CONFIG.urls.itemsAPI(campaignId);
     const headers = (authentication.CACHE_AUTH.exists(cobaltId).data !== null) ? {headers: {"Authorization": `Bearer ${authentication.CACHE_AUTH.exists(cobaltId).data}`}} : {};
     fetchJsonWithRetry(url, headers, {
@@ -28,16 +28,16 @@ const extractItems = (cobaltId, campaignId) => {
             item.sources && (item.sources.length === 0 || item.sources.some((source) => source.sourceId != 39))
           );
           console.log(
-            `Adding ${filteredItems.length} items available to cache for ${cobaltId}...`
+            `[ddb-proxy] [items] Adding ${filteredItems.length} items to the response for ${cobaltId}`
           );
           resolve(filteredItems);
         } else {
-          console.log("Received no valid item data, instead:" + json.message);
+          console.log(`[ddb-proxy] [items] Received no valid item data: ${json.message}`);
           reject(json.message);
         }
       })
       .catch(error => {
-        console.log("Error retrieving items");
+        console.log("[ddb-proxy] [items] Error retrieving items");
         console.log(error);
         reject(error);
       });

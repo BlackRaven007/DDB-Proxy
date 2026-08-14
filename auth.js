@@ -16,15 +16,16 @@ function isJSON(str) {
 async function getBearerToken(id, cobalt) {
   try {
     if (!cobalt || cobalt === "") {
-      console.log("NO COBALT TOKEN");
+      console.log(`[ddb-proxy] [auth] Missing cobalt token for cacheId=${id}`);
       return null;
     }
 
     if (!isJSON(`{ "cobalt": "${cobalt}" }`)) {
-      console.log(`Invalid token for ${id}`);
+      console.log(`[ddb-proxy] [auth] Invalid token shape for cacheId=${id}`);
       return null;
     }
 
+    console.log(`[ddb-proxy] [auth] Requesting bearer token for cacheId=${id}`);
     const response = await fetchJsonWithRetry(CONFIG.urls.authService, {
       method: "POST",
       headers: {
@@ -39,13 +40,15 @@ async function getBearerToken(id, cobalt) {
 
     const data = response.data;
     if (!response.ok || !data?.token || !data.token.length) {
+      console.log(`[ddb-proxy] [auth] Bearer token request did not return a usable token for cacheId=${id} (status=${response.status})`);
       return null;
     }
 
     CACHE_AUTH.add(id, data.token);
+    console.log(`[ddb-proxy] [auth] Cached bearer token for cacheId=${id}`);
     return data.token;
   } catch (error) {
-    console.log(`Error retrieving bearer token for ${id}`);
+    console.log(`[ddb-proxy] [auth] Error retrieving bearer token for cacheId=${id}`);
     console.log(error);
     return null;
   }

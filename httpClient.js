@@ -17,6 +17,25 @@ const queueState = {
   queue: [],
 };
 
+const LOG_PREFIX = "[ddb-proxy]";
+
+function getLogContext(correlationId = null) {
+  const current = correlationId || getCurrentCorrelationId() || "unknown";
+  return `[${current}]`;
+}
+
+function logInfo(message, correlationId = null) {
+  console.log(`${LOG_PREFIX} ${getLogContext(correlationId)} ${message}`);
+}
+
+function logWarn(message, correlationId = null) {
+  console.warn(`${LOG_PREFIX} ${getLogContext(correlationId)} ${message}`);
+}
+
+function logError(message, correlationId = null) {
+  console.error(`${LOG_PREFIX} ${getLogContext(correlationId)} ${message}`);
+}
+
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
@@ -65,12 +84,14 @@ async function fetchWithTimeout(url, options = {}, timeoutMs = 15000) {
 function runQueued(operation) {
   return new Promise((resolve, reject) => {
     if (queueState.active >= queueState.maxConcurrency && queueState.queue.length >= queueState.maxQueue) {
+      logWarn(`HTTP queue is saturated (active=${queueState.active}, queued=${queueState.queue.length})`);
       reject(new Error("HTTP queue is saturated"));
       return;
     }
 
     const execute = () => {
       queueState.active += 1;
+      logInfo(`HTTP queue dispatch (active=${queueState.active}, queued=${queueState.queue.length})`);
       Promise.resolve()
         .then(operation)
         .then(resolve)
@@ -112,6 +133,8 @@ async function fetchJsonWithRetry(url, options = {}, {
       },
     };
 
+    logInfo(`Starting ${requestOptions.method || "GET"} request to ${url}`, requestCorrelationId);
+
     while (attempt <= retries) {
       try {
         const response = await runQueued(() => fetchWithTimeout(url, requestOptions, timeoutMs));
@@ -121,6 +144,7 @@ async function fetchJsonWithRetry(url, options = {}, {
           const data = await response.json();
           const durationMs = Date.now() - requestStartedAt;
           recordLatency(durationMs);
+          logInfo(`Completed ${requestOptions.method || "GET"} ${url} with status ${response.status} in ${durationMs}ms (attempt=${attempt + 1}, retries=${attempt})`, requestCorrelationId);
           return {
             ok: response.ok,
             status: response.status,
@@ -130,13 +154,17 @@ async function fetchJsonWithRetry(url, options = {}, {
             correlationId: requestCorrelationId,
           };
         }
+
+        logWarn(`Retrying ${requestOptions.method || "GET"} ${url} after status ${response.status} (attempt=${attempt + 1}/${retries + 1})`, requestCorrelationId);
       } catch (err) {
         lastError = err;
+        logWarn(`Request failed for ${requestOptions.method || "GET"} ${url} (attempt=${attempt + 1}/${retries + 1}): ${err.message}`, requestCorrelationId);
         if (attempt === retries) throw err;
       }
 
       const backoff = retryDelayMs * Math.pow(2, attempt);
       const jitter = Math.floor(Math.random() * 100);
+      logInfo(`Waiting ${backoff + jitter}ms before retry for ${url}`, requestCorrelationId);
       await sleep(backoff + jitter);
       attempt += 1;
     }
@@ -147,6 +175,7 @@ async function fetchJsonWithRetry(url, options = {}, {
   if (!requestKey) return perform();
 
   if (inFlightByKey.has(requestKey)) {
+    logInfo(`Reusing in-flight request for ${requestKey}`);
     return inFlightByKey.get(requestKey);
   }
 
@@ -176,4 +205,7 @@ module.exports = {
   getHttpQueueStats,
   runWithCorrelationId,
   getCurrentCorrelationId,
+  logInfo,
+  logWarn,
+  logError,
 };

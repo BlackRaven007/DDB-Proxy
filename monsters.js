@@ -46,7 +46,7 @@ function imageFiddleMonsters(monsters) {
 
 const extractMonsters = (cobaltId, searchTerm="", homebrew, homebrewOnly, sources) => {
   return new Promise((resolve, reject) => {
-    console.log(`Retrieving monsters for ${cobaltId}`);
+    console.log(`[ddb-proxy] [monsters] Retrieving monsters for ${cobaltId}`);
 
     let monsters = [];
     const headers = (authentication.CACHE_AUTH.exists(cobaltId).data !== null) ? {headers: {"Authorization": `Bearer ${authentication.CACHE_AUTH.exists(cobaltId).data}`}} : {};
@@ -54,10 +54,10 @@ const extractMonsters = (cobaltId, searchTerm="", homebrew, homebrewOnly, source
     // fetch 100 monsters at a time - api limit
     let take = 100;
     getMonsterCount(cobaltId, searchTerm, homebrew, homebrewOnly, sources).then(async (total) => {
-      console.log(`Total monsters ${total}`);
+      console.log(`[ddb-proxy] [monsters] Total monsters reported: ${total}`);
       const hardTotal = total;
       while (total >= count && hardTotal >= count) {
-        console.log(`Fetching monsters ${count}`);
+        console.log(`[ddb-proxy] [monsters] Fetching monster page starting at ${count}`);
         const url = CONFIG.urls.monstersAPI(count,take,searchTerm, homebrew, homebrewOnly, sources);
         await fetchJsonWithRetry(url, headers, {
           retries: 2,
@@ -76,7 +76,7 @@ const extractMonsters = (cobaltId, searchTerm="", homebrew, homebrewOnly, source
             monsters.push(...imageFiddledMonsters);
           })
           .catch(error => {
-            console.log(`Error retrieving monsters at ${count}`);
+            console.log(`[ddb-proxy] [monsters] Error retrieving monsters at offset ${count}`);
             console.log(error);
             reject(error);
           });
@@ -103,7 +103,7 @@ async function getIdCount(ids) {
 
 function extractMonstersById (cobaltId, ids) {
   return new Promise((resolve, reject) => {
-    console.log(`Retrieving monsters for ${cobaltId} and ${ids}`);
+    console.log(`[ddb-proxy] [monsters] Retrieving monsters by id for ${cobaltId} (${ids.length} ids)`);
 
     let monsters = [];
     let count = 0;
@@ -132,7 +132,7 @@ function extractMonstersById (cobaltId, ids) {
             monsters.push(...imageFiddledMonsters);
           })
           .catch((error) => {
-            console.log("Error retrieving monsters by id");
+            console.log("[ddb-proxy] [monsters] Error retrieving monsters by id");
             console.log(error);
             reject(error);
           });

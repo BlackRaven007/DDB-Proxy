@@ -11,7 +11,7 @@ const extractClassOptions = (cobaltId, optionIds=[], campaignId=null) => {
   console.log(optionIds);
 
   return new Promise((resolve, reject) => {
-    console.log(`Retrieving class options for ${cobaltId}`);
+    console.log(`[ddb-proxy] [character] Requesting class options for ${cobaltId}`);
 
     const url = CONFIG.urls.classOptionsAPI();
     const body = JSON.stringify({
@@ -46,12 +46,12 @@ const extractClassOptions = (cobaltId, optionIds=[], campaignId=null) => {
           );
           resolve(filteredItems);
         } else {
-          console.log("Received no valid class option data, instead:" + json.message);
+          console.log(`[ddb-proxy] [character] Received no valid class option data: ${json.message}`);
           reject(json.message);
         }
       })
       .catch(error => {
-        console.log("Error retrieving class options");
+        console.log("[ddb-proxy] [character] Error retrieving class options");
         console.log(error);
         reject(error);
       });
@@ -63,7 +63,7 @@ const extractRacialTraitsOptions = (cobaltId, optionIds=[], campaignId=null) => 
   console.log(optionIds);
 
   return new Promise((resolve, reject) => {
-    console.log(`Retrieving origin options for ${cobaltId}`);
+    console.log(`[ddb-proxy] [character] Requesting origin options for ${cobaltId}`);
 
     const url = CONFIG.urls.racialTraitOptionsAPI();
     const body = JSON.stringify({
@@ -98,12 +98,12 @@ const extractRacialTraitsOptions = (cobaltId, optionIds=[], campaignId=null) => 
           );
           resolve(filteredItems);
         } else {
-          console.log("Received no valid origin option data, instead:" + json.message);
+          console.log(`[ddb-proxy] [character] Received no valid origin option data: ${json.message}`);
           reject(json.message);
         }
       })
       .catch(error => {
-        console.log("Error retrieving origin options");
+        console.log("[ddb-proxy] [character] Error retrieving origin options");
         console.log(error);
         reject(error);
       });
@@ -112,7 +112,7 @@ const extractRacialTraitsOptions = (cobaltId, optionIds=[], campaignId=null) => 
 
 const extractCharacterData = (cobaltId, characterId) => {
   return new Promise((resolve, reject) => {
-    console.log(`Retrieving character id ${characterId}`);
+    console.log(`[ddb-proxy] [character] Retrieving character data for characterId=${characterId}`);
 
     const auth = authentication.CACHE_AUTH.exists(cobaltId);
     const headers = (auth) ? {headers: {"Authorization": `Bearer ${auth.data}`}} : {};
@@ -125,13 +125,15 @@ const extractCharacterData = (cobaltId, characterId) => {
     })
       .then(({ data: json, ok }) => {
         if (ok && isValidData(json)) {
+          console.log(`[ddb-proxy] [character] Character data retrieved successfully for characterId=${characterId}`);
           resolve(json.data);
         } else {
+          console.log(`[ddb-proxy] [character] Character data request failed for characterId=${characterId}: ${json.message}`);
           reject(json.message);
         }
       })
       .catch(error => {
-        console.log(`loadCharacterData(${characterId}): ${error}`);
+        console.log(`[ddb-proxy] [character] loadCharacterData(${characterId}) failed: ${error}`);
         reject(error);
       });
   });
@@ -142,7 +144,7 @@ const getOptionalClassFeatures = (data, optionIds, campaignId, cobaltId) => {
 
   return new Promise((resolve) => {
     if (cacheId) {
-      console.log("CLASS Optional Features:");
+      console.log(`[ddb-proxy] [character] Processing optional class features for ${cobaltId}`);
 
       extractClassOptions(cobaltId, optionIds, campaignId)
         .then(options => {
@@ -160,7 +162,7 @@ const getOptionalOrigins = (data, optionIds, campaignId, cobaltId) => {
 
   return new Promise((resolve) => {
     if (cacheId) {
-      console.log("ORIGIN Optional Features:");
+      console.log(`[ddb-proxy] [character] Processing optional origin features for ${cobaltId}`);
 
       extractRacialTraitsOptions(cobaltId, optionIds, campaignId)
         .then(options => {
