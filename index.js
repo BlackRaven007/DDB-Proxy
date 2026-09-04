@@ -412,6 +412,50 @@ function createServer(options = {}) {
     transports: ["websocket", "polling"],
   });
 
+  const registerStreamNamespace = (namespace, label) => {
+    const nsp = io.of(namespace);
+    nsp.on("connection", (socket) => {
+      console.log(`[ddb-proxy] [socket.io:${label}] Client connected: ${socket.id}`);
+
+      socket.on("disconnect", (reason) => {
+        console.log(`[ddb-proxy] [socket.io:${label}] Client disconnected: ${socket.id} (${reason})`);
+      });
+
+      socket.on("auth", (payload, callback) => {
+        const message = `Streaming socket namespace ${namespace} is not implemented on this ddb-proxy instance; HTTP fallback is required.`;
+        console.warn(`[ddb-proxy] [socket.io:${label}] auth rejected: ${message}`);
+        if (typeof callback === "function") {
+          callback({ ok: false, message });
+        } else {
+          socket.emit("event", { kind: "error", payload: { message, fatal: true } });
+        }
+      });
+
+      socket.on("start", (_payload, callback) => {
+        const message = `Stream jobs are not available on ${namespace}; use the HTTP endpoint instead.`;
+        console.warn(`[ddb-proxy] [socket.io:${label}] start rejected: ${message}`);
+        if (typeof callback === "function") {
+          callback({ ok: false, message });
+        }
+      });
+
+      socket.on("resume", (_payload, callback) => {
+        if (typeof callback === "function") callback({ ok: false, message: "resume not supported" });
+      });
+
+      socket.on("cancel", (_payload, callback) => {
+        if (typeof callback === "function") callback({ ok: false, message: "cancel not supported" });
+      });
+    });
+  };
+
+  [
+    ["/monsters", "monsters"],
+    ["/items", "items"],
+    ["/spells", "spells"],
+    ["/mule", "mule"],
+  ].forEach(([namespace, label]) => registerStreamNamespace(namespace, label));
+
   io.on("connection", (socket) => {
     console.log(`[ddb-proxy] [socket.io] Client connected: ${socket.id}`);
 
@@ -419,12 +463,13 @@ function createServer(options = {}) {
       console.log(`[ddb-proxy] [socket.io] Client disconnected: ${socket.id} (${reason})`);
     });
 
-    socket.on("auth", (payload) => {
-      socket.emit("auth", {
-        success: true,
-        message: "DDB proxy socket.io ready",
-        payload,
-      });
+    socket.on("auth", (payload, callback) => {
+      const message = "DDB proxy socket.io ready";
+      if (typeof callback === "function") {
+        callback({ ok: true, message, payload });
+      } else {
+        socket.emit("auth", { ok: true, message, payload });
+      }
     });
   });
 
