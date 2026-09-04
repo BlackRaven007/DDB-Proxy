@@ -421,22 +421,115 @@ function createServer(options = {}) {
         console.log(`[ddb-proxy] [socket.io:${label}] Client disconnected: ${socket.id} (${reason})`);
       });
 
-      socket.on("auth", (payload, callback) => {
-        const message = `Streaming socket namespace ${namespace} is not implemented on this ddb-proxy instance; HTTP fallback is required.`;
-        console.warn(`[ddb-proxy] [socket.io:${label}] auth rejected: ${message}`);
-        if (typeof callback === "function") {
-          callback({ ok: false, message });
-        } else {
-          socket.emit("event", { kind: "error", payload: { message, fatal: true } });
+      socket.on("auth", async (payload, callback) => {
+        if (namespace !== "/monsters") {
+          const message = `Streaming socket namespace ${namespace} is not implemented on this ddb-proxy instance; HTTP fallback is required.`;
+          console.warn(`[ddb-proxy] [socket.io:${label}] auth rejected: ${message}`);
+          if (typeof callback === "function") {
+            callback({ ok: false, message });
+          } else {
+            socket.emit("event", { kind: "error", payload: { message, fatal: true } });
+          }
+          return;
         }
+
+        const cobalt = payload?.cobalt;
+        if (!cobalt || cobalt === "") {
+          if (typeof callback === "function") callback({ ok: false, message: "No cobalt token" });
+          return;
+        }
+
+        const cacheId = authentication.getCacheId(cobalt);
+        const token = await authentication.getBearerToken(cacheId, cobalt);
+        if (!token) {
+          if (typeof callback === "function") callback({ ok: false, message: "You must supply a valid cobalt value." });
+          return;
+        }
+
+        socket.data.ddbAuth = {
+          cobalt,
+          betaKey: payload?.betaKey,
+          campaignId: payload?.campaignId ?? null,
+          characterId: payload?.characterId ?? null,
+        };
+        if (typeof callback === "function") callback({ ok: true, message: "Monster streaming auth ok" });
       });
 
-      socket.on("start", (_payload, callback) => {
-        const message = `Stream jobs are not available on ${namespace}; use the HTTP endpoint instead.`;
-        console.warn(`[ddb-proxy] [socket.io:${label}] start rejected: ${message}`);
-        if (typeof callback === "function") {
-          callback({ ok: false, message });
+      socket.on("start", (payload, callback) => {
+        if (namespace !== "/monsters") {
+          const message = `Stream jobs are not available on ${namespace}; use the HTTP endpoint instead.`;
+          console.warn(`[ddb-proxy] [socket.io:${label}] start rejected: ${message}`);
+          if (typeof callback === "function") callback({ ok: false, message });
+          return;
         }
+
+        const element = payload?.element;
+        const params = payload?.params ?? {};
+        const cobalt = params?.cobalt ?? socket.data.ddbAuth?.cobalt;
+        if (!cobalt || cobalt === "") {
+          if (typeof callback === "function") callback({ ok: false, message: "No cobalt token" });
+          return;
+        }
+
+        const supported = element === "all-monsters" || element === "monsters-by-id";
+        if (!supported) {
+          if (typeof callback === "function") callback({ ok: false, message: `Unsupported monsters stream element: ${element}` });
+          return;
+        }
+
+        const jobId = crypto.randomUUID();
+        const jobToken = crypto.randomUUID();
+        if (typeof callback === "function") {
+          callback({ ok: true, jobId, jobToken, replayed: 0 });
+        }
+
+        const emitFailure = (error) => {
+          const message = error instanceof Error ? error.message : String(error);
+          socket.emit("event", { seq: 1, kind: "error", payload: { message, fatal: true } });
+        };
+
+        (async () => {
+          try {
+            if (element === "monsters-by-id") {
+              const ids = Array.isArray(params?.ids) ? params.ids : [];
+              if (ids.length === 0) throw new Error("Please supply required monster ids.");
+
+              const hash = crypto.createHash("sha256");
+              hash.update(cobalt + ids.join("-"));
+              const cacheId = hash.digest("hex");
+              const data = await monsters.extractMonstersById(cacheId, ids);
+              socket.emit("event", { seq: 1, kind: "monsters", payload: data });
+              socket.emit("event", { seq: 2, kind: "done", payload: { count: data.length } });
+              return;
+            }
+
+            const search = params?.search ?? "";
+            const searchTerm = params?.searchTerm ?? "";
+            const homebrew = !!params?.homebrew;
+            const homebrewOnly = !!params?.homebrewOnly;
+            const excludeLegacy = !!params?.excludeLegacy;
+            const exactNameMatch = !!params?.exactMatch;
+            const performExactMatch = exactNameMatch && searchTerm && searchTerm !== "";
+            const sources = Array.isArray(params?.sources) ? params.sources : [];
+
+            const hash = crypto.createHash("sha256");
+            hash.update(cobalt + searchTerm);
+            const cacheId = hash.digest("hex");
+
+            const baseData = await monsters.extractMonsters(cacheId, searchTerm, homebrew, homebrewOnly, sources);
+            const legacyFiltered = excludeLegacy
+              ? baseData.filter((monster) => !monster.isLegacy)
+              : baseData;
+            const finalData = performExactMatch
+              ? legacyFiltered.filter((monster) => monster.name.toLowerCase() === search.toLowerCase())
+              : legacyFiltered;
+
+            socket.emit("event", { seq: 1, kind: "monsters", payload: finalData });
+            socket.emit("event", { seq: 2, kind: "done", payload: { count: finalData.length } });
+          } catch (error) {
+            emitFailure(error);
+          }
+        })();
       });
 
       socket.on("resume", (_payload, callback) => {
