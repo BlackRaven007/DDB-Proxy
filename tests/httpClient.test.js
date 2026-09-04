@@ -183,3 +183,73 @@ test("proxy implements the /spells socket namespace for class spell jobs", async
     await new Promise((resolve) => server.close(resolve));
   }
 });
+
+test("proxy implements the /items socket namespace for item bulk jobs", async () => {
+  const { io } = require("socket.io-client");
+  const { createServer: createProxyServer } = require("../index.js");
+  const items = require("../items.js");
+  const authentication = require("../auth.js");
+  const originalExtractItems = items.extractItems;
+  const originalGetBearerToken = authentication.getBearerToken;
+
+  items.extractItems = async (cobaltId, campaignId) => {
+    assert.equal(cobaltId, "item-cache-id");
+    assert.equal(campaignId, "camp-42");
+    return [
+      { id: 1, name: "Dagger", canBeAddedToInventory: true, sources: [{ sourceId: 1 }] },
+      { id: 2, name: "Shield", canBeAddedToInventory: true, sources: [{ sourceId: 2 }] },
+    ];
+  };
+
+  authentication.getBearerToken = async (cacheId, cobalt) => {
+    assert.equal(cobalt, "item-cobalt");
+    assert.equal(typeof cacheId, "string");
+    return "test-item-bearer";
+  };
+
+  const { server, url } = await createProxyServer({ port: 0 });
+
+  try {
+    const socket = io(`${url}/items`, {
+      transports: ["websocket"],
+      timeout: 5000,
+    });
+
+    const authAck = await new Promise((resolve, reject) => {
+      socket.once("connect", () => {
+        socket.emit("auth", { cobalt: "item-cobalt", betaKey: "beta", campaignId: "camp-42" }, (res) => {
+          resolve(res);
+        });
+      });
+      socket.once("connect_error", reject);
+    });
+
+    assert.deepEqual(authAck, { ok: true, message: "Item streaming auth ok" });
+
+    const itemsEvent = await new Promise((resolve, reject) => {
+      socket.on("event", (event) => {
+        if (event.kind === "items") {
+          resolve(event);
+        }
+      });
+
+      socket.emit("start", {
+        element: "all-items",
+        params: { campaignId: "camp-42", cobalt: "item-cobalt" },
+      }, (res) => {
+        if (!res || !res.ok) {
+          reject(new Error(res?.message || "start failed"));
+        }
+      });
+      socket.once("connect_error", reject);
+    });
+
+    assert.equal(itemsEvent.kind, "items");
+    assert.equal(itemsEvent.payload.items.length, 2);
+    socket.disconnect();
+  } finally {
+    items.extractItems = originalExtractItems;
+    authentication.getBearerToken = originalGetBearerToken;
+    await new Promise((resolve) => server.close(resolve));
+  }
+});

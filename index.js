@@ -422,7 +422,7 @@ function createServer(options = {}) {
       });
 
       socket.on("auth", async (payload, callback) => {
-        const supportedNamespaces = ["/monsters", "/spells"];
+        const supportedNamespaces = ["/monsters", "/spells", "/items"];
         if (!supportedNamespaces.includes(namespace)) {
           const message = `Streaming socket namespace ${namespace} is not implemented on this ddb-proxy instance; HTTP fallback is required.`;
           console.warn(`[ddb-proxy] [socket.io:${label}] auth rejected: ${message}`);
@@ -454,7 +454,12 @@ function createServer(options = {}) {
           characterId: payload?.characterId ?? null,
         };
         if (typeof callback === "function") {
-          callback({ ok: true, message: namespace === "/spells" ? "Spell streaming auth ok" : "Monster streaming auth ok" });
+          const authMessage = namespace === "/spells"
+            ? "Spell streaming auth ok"
+            : namespace === "/items"
+              ? "Item streaming auth ok"
+              : "Monster streaming auth ok";
+          callback({ ok: true, message: authMessage });
         }
       });
 
@@ -462,12 +467,15 @@ function createServer(options = {}) {
         const supportedForNamespace = {
           "/monsters": ["all-monsters", "monsters-by-id"],
           "/spells": ["class-spells"],
+          "/items": ["all-items"],
         };
         const supported = supportedForNamespace[namespace] ?? [];
         if (!supported.includes(payload?.element)) {
           const message = namespace === "/spells"
             ? `Stream jobs are not available on ${namespace}; use the HTTP endpoint instead.`
-            : `Unsupported monsters stream element: ${payload?.element}`;
+            : namespace === "/items"
+              ? `Stream jobs are not available on ${namespace}; use the HTTP endpoint instead.`
+              : `Unsupported monsters stream element: ${payload?.element}`;
           console.warn(`[ddb-proxy] [socket.io:${label}] start rejected: ${message}`);
           if (typeof callback === "function") callback({ ok: false, message });
           return;
@@ -523,6 +531,14 @@ function createServer(options = {}) {
               const rawSpells = data.map((entry) => entry.spells).flat();
               socket.emit("event", { seq: 1, kind: "classSpells", payload: { spells: rawSpells } });
               socket.emit("event", { seq: 2, kind: "done", payload: { count: rawSpells.length, className, rulesVersion } });
+              return;
+            }
+
+            if (namespace === "/items") {
+              const campaignId = params?.campaignId ?? socket.data.ddbAuth?.campaignId ?? null;
+              const data = await items.extractItems(authentication.getCacheId(cobalt), campaignId);
+              socket.emit("event", { seq: 1, kind: "items", payload: { items: data, spells: [], extra: [] } });
+              socket.emit("event", { seq: 2, kind: "done", payload: { count: data.length } });
               return;
             }
 
