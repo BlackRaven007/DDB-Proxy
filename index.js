@@ -422,7 +422,8 @@ function createServer(options = {}) {
       });
 
       socket.on("auth", async (payload, callback) => {
-        if (namespace !== "/monsters") {
+        const supportedNamespaces = ["/monsters", "/spells"];
+        if (!supportedNamespaces.includes(namespace)) {
           const message = `Streaming socket namespace ${namespace} is not implemented on this ddb-proxy instance; HTTP fallback is required.`;
           console.warn(`[ddb-proxy] [socket.io:${label}] auth rejected: ${message}`);
           if (typeof callback === "function") {
@@ -452,12 +453,21 @@ function createServer(options = {}) {
           campaignId: payload?.campaignId ?? null,
           characterId: payload?.characterId ?? null,
         };
-        if (typeof callback === "function") callback({ ok: true, message: "Monster streaming auth ok" });
+        if (typeof callback === "function") {
+          callback({ ok: true, message: namespace === "/spells" ? "Spell streaming auth ok" : "Monster streaming auth ok" });
+        }
       });
 
       socket.on("start", (payload, callback) => {
-        if (namespace !== "/monsters") {
-          const message = `Stream jobs are not available on ${namespace}; use the HTTP endpoint instead.`;
+        const supportedForNamespace = {
+          "/monsters": ["all-monsters", "monsters-by-id"],
+          "/spells": ["class-spells"],
+        };
+        const supported = supportedForNamespace[namespace] ?? [];
+        if (!supported.includes(payload?.element)) {
+          const message = namespace === "/spells"
+            ? `Stream jobs are not available on ${namespace}; use the HTTP endpoint instead.`
+            : `Unsupported monsters stream element: ${payload?.element}`;
           console.warn(`[ddb-proxy] [socket.io:${label}] start rejected: ${message}`);
           if (typeof callback === "function") callback({ ok: false, message });
           return;
@@ -468,12 +478,6 @@ function createServer(options = {}) {
         const cobalt = params?.cobalt ?? socket.data.ddbAuth?.cobalt;
         if (!cobalt || cobalt === "") {
           if (typeof callback === "function") callback({ ok: false, message: "No cobalt token" });
-          return;
-        }
-
-        const supported = element === "all-monsters" || element === "monsters-by-id";
-        if (!supported) {
-          if (typeof callback === "function") callback({ ok: false, message: `Unsupported monsters stream element: ${element}` });
           return;
         }
 
@@ -490,6 +494,38 @@ function createServer(options = {}) {
 
         (async () => {
           try {
+            if (namespace === "/spells") {
+              const className = params?.className ?? "";
+              const rulesVersion = params?.rulesVersion ?? "2014";
+              const campaignId = params?.campaignId ?? socket.data.ddbAuth?.campaignId ?? null;
+              const klass = CONFIG.classMap.find((cls) => cls.name == className);
+              if (!klass) throw new Error(`Unsupported class for spell stream: ${className}`);
+
+              const mockClass = [
+                {
+                  characterClassId: authentication.getCacheId(cobalt),
+                  name: klass.name,
+                  id: klass.id,
+                  level: 20,
+                  spellLevelAccess: 20,
+                  spells: [],
+                  classId: klass.id,
+                  subclassId: klass.id,
+                  characterClass: klass.name,
+                  characterSubclass: klass.name,
+                  characterId: authentication.getCacheId(cobalt),
+                  spellType: klass.spells,
+                  campaignId,
+                },
+              ];
+
+              const data = await spells.loadSpells(mockClass, cobalt, true);
+              const rawSpells = data.map((entry) => entry.spells).flat();
+              socket.emit("event", { seq: 1, kind: "classSpells", payload: { spells: rawSpells } });
+              socket.emit("event", { seq: 2, kind: "done", payload: { count: rawSpells.length, className, rulesVersion } });
+              return;
+            }
+
             if (element === "monsters-by-id") {
               const ids = Array.isArray(params?.ids) ? params.ids : [];
               if (ids.length === 0) throw new Error("Please supply required monster ids.");

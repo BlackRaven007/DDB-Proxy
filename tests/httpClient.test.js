@@ -108,3 +108,78 @@ test("proxy exposes a socket.io endpoint for importer websocket clients", async 
     await new Promise((resolve) => server.close(resolve));
   }
 });
+
+test("proxy implements the /spells socket namespace for class spell jobs", async () => {
+  const { io } = require("socket.io-client");
+  const { createServer: createProxyServer } = require("../index.js");
+  const spells = require("../spells.js");
+  const authentication = require("../auth.js");
+  const originalLoadSpells = spells.loadSpells;
+  const originalGetBearerToken = authentication.getBearerToken;
+
+  spells.loadSpells = async (classInfo, cobaltToken, cantrips) => {
+    assert.equal(cobaltToken, "spell-cobalt");
+    assert.equal(cantrips, true);
+    return [{
+      name: "Wizard",
+      id: 8,
+      spells: [
+        { definition: { name: "Magic Missile" }, id: 1 },
+        { definition: { name: "Fireball" }, id: 2 },
+      ],
+    }];
+  };
+
+  authentication.getBearerToken = async (cacheId, cobalt) => {
+    assert.equal(cobalt, "spell-cobalt");
+    assert.equal(typeof cacheId, "string");
+    return "test-bearer-token";
+  };
+
+  const { server, url } = await createProxyServer({ port: 0 });
+
+  try {
+    const socket = io(`${url}/spells`, {
+      transports: ["websocket"],
+      timeout: 5000,
+    });
+
+    const authAck = await new Promise((resolve, reject) => {
+      const handleConnect = () => {
+        socket.emit("auth", { cobalt: "spell-cobalt", betaKey: "beta" }, (res) => {
+          resolve(res);
+        });
+      };
+      socket.once("connect", handleConnect);
+      socket.once("connect_error", reject);
+    });
+
+    assert.deepEqual(authAck, { ok: true, message: "Spell streaming auth ok" });
+
+    const classSpellsEvent = await new Promise((resolve, reject) => {
+      socket.on("event", (event) => {
+        if (event.kind === "classSpells") {
+          resolve(event);
+        }
+      });
+
+      socket.emit("start", {
+        element: "class-spells",
+        params: { className: "Wizard", rulesVersion: "2014", cobalt: "spell-cobalt" },
+      }, (res) => {
+        if (!res || !res.ok) {
+          reject(new Error(res?.message || "start failed"));
+        }
+      });
+      socket.once("connect_error", reject);
+    });
+
+    assert.equal(classSpellsEvent.kind, "classSpells");
+    assert.equal(classSpellsEvent.payload.spells.length, 2);
+    socket.disconnect();
+  } finally {
+    spells.loadSpells = originalLoadSpells;
+    authentication.getBearerToken = originalGetBearerToken;
+    await new Promise((resolve) => server.close(resolve));
+  }
+});
