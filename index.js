@@ -1,6 +1,8 @@
 const express = require("express");
+const http = require("node:http");
 const cors = require("cors");
 const crypto = require("crypto");
+const { Server } = require("socket.io");
 
 const CONFIG = require("./config.js");
 const authentication = require("./auth.js");
@@ -399,6 +401,58 @@ app.post("/proxy/campaigns", cors(), express.json(), (req, res) => {
   });
 });
 
-app.listen(port, () => {
-  console.log(`DDB Proxy started on :${port}`);
-});
+function createServer(options = {}) {
+  const listenPort = options.port ?? port;
+  const server = http.createServer(app);
+  const io = new Server(server, {
+    cors: {
+      origin: "*",
+      methods: ["GET", "POST"],
+    },
+    transports: ["websocket", "polling"],
+  });
+
+  io.on("connection", (socket) => {
+    console.log(`[ddb-proxy] [socket.io] Client connected: ${socket.id}`);
+
+    socket.on("disconnect", (reason) => {
+      console.log(`[ddb-proxy] [socket.io] Client disconnected: ${socket.id} (${reason})`);
+    });
+
+    socket.on("auth", (payload) => {
+      socket.emit("auth", {
+        success: true,
+        message: "DDB proxy socket.io ready",
+        payload,
+      });
+    });
+  });
+
+  return new Promise((resolve, reject) => {
+    server.once("error", reject);
+    server.listen(listenPort, () => {
+      const address = server.address();
+      const actualPort = typeof address === "object" && address ? address.port : listenPort;
+      resolve({
+        app,
+        server,
+        io,
+        url: `http://127.0.0.1:${actualPort}`,
+      });
+    });
+  });
+}
+
+if (require.main === module) {
+  createServer({ port }).then(({ server }) => {
+    console.log(`DDB Proxy started on :${server.address().port}`);
+  }).catch((error) => {
+    console.error("Failed to start DDB Proxy:", error);
+    process.exit(1);
+  });
+}
+
+module.exports = {
+  app,
+  createServer,
+};

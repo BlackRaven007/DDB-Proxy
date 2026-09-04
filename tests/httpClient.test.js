@@ -94,3 +94,17 @@ test("getHttpQueueStats exposes latency percentile samples", async () => {
     await new Promise((resolve) => server.close(resolve));
   }
 });
+
+test("proxy exposes a socket.io endpoint for importer websocket clients", async () => {
+  const { createServer: createProxyServer } = require("../index.js");
+  const { server, url } = await createProxyServer({ port: 0 });
+
+  try {
+    const response = await fetch(`${url}/socket.io/?EIO=4&transport=polling`);
+    assert.equal(response.status, 200);
+    const body = await response.text();
+    assert.match(body, /^0\{/);
+  } finally {
+    await new Promise((resolve) => server.close(resolve));
+  }
+});
