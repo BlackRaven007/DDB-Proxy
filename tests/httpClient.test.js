@@ -2,6 +2,13 @@ const test = require("node:test");
 const assert = require("node:assert/strict");
 const http = require("node:http");
 const { fetchJsonWithRetry, getHttpQueueStats, runWithCorrelationId } = require("../httpClient");
+const { isAllowedHost } = require("../image");
+
+test("image proxy allows DDB restricted S3 book host", () => {
+  assert.equal(isAllowedHost("h7ktnb-us-east-1-dndbeyond-live-restricted.s3.amazonaws.com"), true);
+  assert.equal(isAllowedHost("dndbeyond-live-restricted.s3.amazonaws.com"), true);
+  assert.equal(isAllowedHost("example.com"), false);
+});
 
 function createServer(handler) {
   const server = http.createServer(handler);

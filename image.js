@@ -8,9 +8,18 @@ const ALLOWED_HOST_SUFFIXES = [
   "cloudfront.net",
 ];
 
+// Signed adventure book zips use hostnames like
+// `<prefix>-dndbeyond-live-restricted.s3.amazonaws.com`.
+const ALLOWED_HOST_SUBSTRINGS = [
+  "dndbeyond-live-restricted.s3.amazonaws.com",
+];
+
 function isAllowedHost(host) {
   const lower = host.toLowerCase();
-  return ALLOWED_HOST_SUFFIXES.some((suffix) => lower === suffix || lower.endsWith(`.${suffix}`));
+  if (ALLOWED_HOST_SUFFIXES.some((suffix) => lower === suffix || lower.endsWith(`.${suffix}`))) {
+    return true;
+  }
+  return ALLOWED_HOST_SUBSTRINGS.some((fragment) => lower.includes(fragment));
 }
 
 /**
