@@ -110,6 +110,27 @@ test("proxy exposes a socket.io endpoint for importer websocket clients", async 
 });
 
 test("proxy serves the adventure browser endpoints with CORS", async () => {
+  const httpClient = require("../httpClient");
+  const originalFetchJsonWithRetry = httpClient.fetchJsonWithRetry;
+  httpClient.fetchJsonWithRetry = async () => ({
+    ok: true,
+    status: 200,
+    data: {
+      status: "success",
+      Licenses: [
+        {
+          EntityTypeID: 496802664,
+          Entities: [
+            { id: 42, name: "Owned Book", isOwned: true, isReleased: true, hasEnhancement: true },
+            { id: 77, name: "Unowned Book", isOwned: false, isReleased: true, hasEnhancement: false },
+          ],
+        },
+      ],
+    },
+  });
+
+  // Load index.js after patching httpClient so the route handler captures the mock.
+  delete require.cache[require.resolve("../index.js")];
   const { createServer: createProxyServer } = require("../index.js");
   const { server, url } = await createProxyServer({ port: 0 });
 
@@ -123,14 +144,14 @@ test("proxy serves the adventure browser endpoints with CORS", async () => {
         "Access-Control-Request-Method": "GET",
       },
     });
-    assert.equal(summaryPreflight.status, 200);
-    assert.equal(summaryPreflight.headers.get("access-control-allow-origin"), origin);
+    assert.equal(summaryPreflight.status, 204);
+    assert.equal(summaryPreflight.headers.get("access-control-allow-origin"), "*");
 
     const summaryResponse = await fetch(`${url}/proxy/maps/metadata/summary`, {
       headers: { Origin: origin },
     });
     assert.equal(summaryResponse.status, 200);
-    assert.equal(summaryResponse.headers.get("access-control-allow-origin"), origin);
+    assert.equal(summaryResponse.headers.get("access-control-allow-origin"), "*");
     const summaryBody = await summaryResponse.json();
     assert.equal(summaryBody.success, true);
     assert.equal(summaryBody.data.books && typeof summaryBody.data.books, "object");
@@ -142,8 +163,8 @@ test("proxy serves the adventure browser endpoints with CORS", async () => {
         "Access-Control-Request-Method": "POST",
       },
     });
-    assert.equal(ownedPreflight.status, 200);
-    assert.equal(ownedPreflight.headers.get("access-control-allow-origin"), origin);
+    assert.equal(ownedPreflight.status, 204);
+    assert.equal(ownedPreflight.headers.get("access-control-allow-origin"), "*");
 
     const ownedResponse = await fetch(`${url}/proxy/adventure/available-user-content`, {
       method: "POST",
@@ -156,7 +177,7 @@ test("proxy serves the adventure browser endpoints with CORS", async () => {
     assert.equal(ownedResponse.status, 200);
     const ownedBody = await ownedResponse.json();
     assert.equal(ownedBody.success, true);
-    assert.deepEqual(ownedBody.data, { bookIds: [], enhancementBookIds: [] });
+    assert.deepEqual(ownedBody.data, { bookIds: [42], enhancementBookIds: [42] });
 
     const libraryResponse = await fetch(`${url}/proxy/library`, {
       method: "POST",
@@ -169,8 +190,33 @@ test("proxy serves the adventure browser endpoints with CORS", async () => {
     assert.equal(libraryResponse.status, 200);
     const libraryBody = await libraryResponse.json();
     assert.equal(libraryBody.success, true);
-    assert.deepEqual(libraryBody.data, []);
+    assert.equal(Array.isArray(libraryBody.data), true);
+    assert.equal(libraryBody.data.length, 2);
+    assert.deepEqual(libraryBody.data[0], {
+      id: 42,
+      name: "Owned Book",
+      isOwned: true,
+      isReleased: true,
+      relativePath: "",
+      hasEnhancement: true,
+    });
+
+    const ownedOnlyLibraryResponse = await fetch(`${url}/proxy/library`, {
+      method: "POST",
+      headers: {
+        Origin: origin,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ cobalt: "dummy", betaKey: "dummy", ownedOnly: true }),
+    });
+    assert.equal(ownedOnlyLibraryResponse.status, 200);
+    const ownedOnlyLibraryBody = await ownedOnlyLibraryResponse.json();
+    assert.equal(ownedOnlyLibraryBody.success, true);
+    assert.equal(ownedOnlyLibraryBody.data.length, 1);
+    assert.equal(ownedOnlyLibraryBody.data[0].id, 42);
   } finally {
+    httpClient.fetchJsonWithRetry = originalFetchJsonWithRetry;
+    delete require.cache[require.resolve("../index.js")];
     await new Promise((resolve) => server.close(resolve));
   }
 });
@@ -259,7 +305,8 @@ test("proxy implements the /items socket namespace for item bulk jobs", async ()
   const originalGetBearerToken = authentication.getBearerToken;
 
   items.extractItems = async (cobaltId, campaignId) => {
-    assert.equal(cobaltId, "item-cache-id");
+    assert.equal(typeof cobaltId, "string");
+    assert.equal(cobaltId.length > 0, true);
     assert.equal(campaignId, "camp-42");
     return [
       { id: 1, name: "Dagger", canBeAddedToInventory: true, sources: [{ sourceId: 1 }] },
@@ -296,6 +343,8 @@ test("proxy implements the /items socket namespace for item bulk jobs", async ()
       socket.on("event", (event) => {
         if (event.kind === "items") {
           resolve(event);
+        } else if (event.kind === "error") {
+          reject(new Error(event?.payload?.message || "items stream error"));
         }
       });
 

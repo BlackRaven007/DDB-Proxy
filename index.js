@@ -6,7 +6,7 @@ const { Server } = require("socket.io");
 
 const CONFIG = require("./config.js");
 const authentication = require("./auth.js");
-const { getHttpQueueStats, runWithCorrelationId } = require("./httpClient");
+const { fetchJsonWithRetry, getHttpQueueStats, runWithCorrelationId } = require("./httpClient");
 
 const filterModifiers = require("./filterModifiers.js");
 const lookup = require("./lookup.js");
@@ -20,6 +20,129 @@ const { imageProxyHandler } = require("./image.js");
 
 const app = express();
 const port = process.env.PORT || 3000;
+const DDB_AVAILABLE_USER_CONTENT_URL = "https://www.dndbeyond.com/mobile/api/v6/available-user-content";
+const BOOK_ENTITY_TYPE_ID = "496802664";
+
+function isTruthyFlag(value) {
+  return value === true || value === 1 || value === "1" || value === "true";
+}
+
+function asNumber(value) {
+  const n = Number(value);
+  return Number.isFinite(n) ? n : null;
+}
+
+function uniqueNumbers(values) {
+  return [...new Set(values.filter((v) => Number.isFinite(v)))];
+}
+
+function extractLicenses(payload) {
+  const root = payload?.data ?? payload ?? {};
+  const licenses = root.Licenses ?? root.licenses ?? [];
+  return Array.isArray(licenses) ? licenses : [];
+}
+
+function licenseEntities(license) {
+  const entities = license?.Entities ?? license?.entities ?? [];
+  return Array.isArray(entities) ? entities : [];
+}
+
+function isBookLicense(license) {
+  const typeId = String(license?.EntityTypeID ?? license?.entityTypeId ?? license?.entityTypeID ?? "");
+  return typeId === BOOK_ENTITY_TYPE_ID;
+}
+
+function isOwnedEntity(entity) {
+  const value = entity?.isOwned ?? entity?.IsOwned ?? entity?.owned;
+  return isTruthyFlag(value);
+}
+
+function isReleasedEntity(entity) {
+  const value = entity?.isReleased ?? entity?.IsReleased;
+  if (value === undefined || value === null) return true;
+  return isTruthyFlag(value);
+}
+
+function hasEnhancementEntity(entity) {
+  const value = entity?.hasEnhancement
+    ?? entity?.HasEnhancement
+    ?? entity?.hasEnhancedContent
+    ?? entity?.HasEnhancedContent;
+  return isTruthyFlag(value);
+}
+
+function mapOwnedBooksFromContent(payload) {
+  const books = extractLicenses(payload)
+    .filter(isBookLicense)
+    .flatMap((license) => licenseEntities(license))
+    .filter((entity) => isReleasedEntity(entity) && isOwnedEntity(entity));
+
+  const bookIds = uniqueNumbers(books.map((entity) => asNumber(entity?.id ?? entity?.ID ?? entity?.entityId ?? entity?.EntityID)));
+  const enhancementBookIds = uniqueNumbers(
+    books
+      .filter((entity) => hasEnhancementEntity(entity))
+      .map((entity) => asNumber(entity?.id ?? entity?.ID ?? entity?.entityId ?? entity?.EntityID)),
+  );
+
+  return { bookIds, enhancementBookIds };
+}
+
+function mapLibraryFromContent(payload, ownedOnly = false) {
+  const books = extractLicenses(payload)
+    .filter(isBookLicense)
+    .flatMap((license) => licenseEntities(license))
+    .filter((entity) => isReleasedEntity(entity));
+
+  const mapped = books
+    .map((entity) => {
+      const id = asNumber(entity?.id ?? entity?.ID ?? entity?.entityId ?? entity?.EntityID);
+      if (id === null) return null;
+      return {
+        id,
+        name: entity?.name ?? entity?.Name ?? `${id}`,
+        isOwned: isOwnedEntity(entity),
+        isReleased: isReleasedEntity(entity),
+        relativePath: entity?.relativePath ?? entity?.RelativePath ?? "",
+        hasEnhancement: hasEnhancementEntity(entity),
+      };
+    })
+    .filter((entry) => entry !== null);
+
+  return ownedOnly ? mapped.filter((entry) => entry.isOwned) : mapped;
+}
+
+async function fetchAvailableUserContent(cobalt) {
+  const form = new URLSearchParams();
+  form.append("token", `${cobalt}`);
+  const requestKey = `available-user-content:${authentication.getCacheId(cobalt)}`;
+  const result = await fetchJsonWithRetry(
+    DDB_AVAILABLE_USER_CONTENT_URL,
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/x-www-form-urlencoded",
+      },
+      body: form.toString(),
+    },
+    {
+      retries: 2,
+      timeoutMs: 20000,
+      retryDelayMs: 300,
+      requestKey,
+    },
+  );
+
+  if (!result.ok) {
+    throw new Error(`available-user-content upstream failed with HTTP ${result.status}`);
+  }
+
+  const status = String(result?.data?.status ?? result?.data?.Status ?? "success").toLowerCase();
+  if (status !== "success") {
+    throw new Error(`available-user-content upstream returned status=${status}`);
+  }
+
+  return result.data;
+}
 
 app.use((req, res, next) => {
   const incoming = req.headers["x-correlation-id"];
@@ -121,24 +244,38 @@ app.get("/proxy/maps/metadata/summary", cors(), (_req, res) => {
 
 const adventureOwnershipRoutes = ["/proxy/adventure/available-user-content", "/proxy/library"];
 app.options(adventureOwnershipRoutes, cors(), (req, res) => res.status(200).send());
-app.post(adventureOwnershipRoutes, cors(), express.json(), (req, res) => {
-  const isLibraryRoute = req.path === "/proxy/library";
-  if (isLibraryRoute) {
-    return res.status(200).json({
-      success: true,
-      message: "Adventure library unavailable on this proxy instance; returning an empty library.",
-      data: [],
-    });
+app.post(adventureOwnershipRoutes, cors(), express.json(), async (req, res) => {
+  const cobalt = req.body?.cobalt;
+  if (!cobalt || cobalt === "") {
+    return res.status(200).json({ success: false, message: "No cobalt token" });
   }
 
-  return res.status(200).json({
-    success: true,
-    message: "Adventure ownership unavailable on this proxy instance; returning no owned books.",
-    data: {
-      bookIds: [],
-      enhancementBookIds: [],
-    },
-  });
+  try {
+    const payload = await fetchAvailableUserContent(cobalt);
+    const isLibraryRoute = req.path === "/proxy/library";
+    if (isLibraryRoute) {
+      const ownedOnly = !!req.body?.ownedOnly;
+      const data = mapLibraryFromContent(payload, ownedOnly);
+      return res.status(200).json({
+        success: true,
+        message: "Adventure library retrieved.",
+        data,
+      });
+    }
+
+    const data = mapOwnedBooksFromContent(payload);
+    return res.status(200).json({
+      success: true,
+      message: "Adventure ownership retrieved.",
+      data,
+    });
+  } catch (error) {
+    console.log(`[ddb-proxy] [adventures] Ownership lookup failed: ${error}`);
+    return res.status(200).json({
+      success: false,
+      message: `Adventure ownership lookup failed: ${error instanceof Error ? error.message : String(error)}`,
+    });
+  }
 });
 
 /**
