@@ -482,6 +482,25 @@ app.post("/proxy/class/spells", cors(), express.json(), (req, res) => {
   });
 });
 
+// Compatibility endpoints expected by the importer's mule list UI. This local
+// proxy does not implement mule catalog APIs, so return a structured response
+// (with CORS) instead of a browser-level preflight failure.
+const muleCatalogRoutes = [
+  "/proxy/classes",
+  "/proxy/feats",
+  "/proxy/backgrounds",
+  "/proxy/races",
+  "/proxy/subclass",
+];
+app.options(muleCatalogRoutes, cors(), (req, res) => res.status(200).send());
+app.post(muleCatalogRoutes, cors(), express.json(), (req, res) => {
+  return res.status(200).json({
+    success: false,
+    message: `Endpoint ${req.path} is not implemented on this proxy instance.`,
+    data: [],
+  });
+});
+
 /**
  * Attempt to parse the character remotely
  */

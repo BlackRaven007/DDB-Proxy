@@ -316,6 +316,44 @@ test("proxy serves the adventure browser endpoints with CORS", async () => {
   }
 });
 
+test("proxy exposes mule catalog routes with CORS and structured unsupported response", async () => {
+  const { createServer: createProxyServer } = require("../index.js");
+  const { server, url } = await createProxyServer({ port: 0 });
+
+  try {
+    const origin = "http://example.com";
+
+    const preflight = await fetch(`${url}/proxy/classes`, {
+      method: "OPTIONS",
+      headers: {
+        Origin: origin,
+        "Access-Control-Request-Method": "POST",
+      },
+    });
+    assert.equal(preflight.status, 204);
+    assert.equal(preflight.headers.get("access-control-allow-origin"), "*");
+
+    const response = await fetch(`${url}/proxy/classes`, {
+      method: "POST",
+      headers: {
+        Origin: origin,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ cobalt: "dummy" }),
+    });
+    assert.equal(response.status, 200);
+    assert.equal(response.headers.get("access-control-allow-origin"), "*");
+
+    const body = await response.json();
+    assert.equal(body.success, false);
+    assert.equal(typeof body.message, "string");
+    assert.equal(body.message.includes("/proxy/classes"), true);
+    assert.equal(Array.isArray(body.data), true);
+  } finally {
+    await new Promise((resolve) => server.close(resolve));
+  }
+});
+
 test("proxy implements the /spells socket namespace for class spell jobs", async () => {
   const { io } = require("socket.io-client");
   const { createServer: createProxyServer } = require("../index.js");
