@@ -109,6 +109,72 @@ test("proxy exposes a socket.io endpoint for importer websocket clients", async 
   }
 });
 
+test("proxy serves the adventure browser endpoints with CORS", async () => {
+  const { createServer: createProxyServer } = require("../index.js");
+  const { server, url } = await createProxyServer({ port: 0 });
+
+  try {
+    const origin = "http://example.com";
+
+    const summaryPreflight = await fetch(`${url}/proxy/maps/metadata/summary`, {
+      method: "OPTIONS",
+      headers: {
+        Origin: origin,
+        "Access-Control-Request-Method": "GET",
+      },
+    });
+    assert.equal(summaryPreflight.status, 200);
+    assert.equal(summaryPreflight.headers.get("access-control-allow-origin"), origin);
+
+    const summaryResponse = await fetch(`${url}/proxy/maps/metadata/summary`, {
+      headers: { Origin: origin },
+    });
+    assert.equal(summaryResponse.status, 200);
+    assert.equal(summaryResponse.headers.get("access-control-allow-origin"), origin);
+    const summaryBody = await summaryResponse.json();
+    assert.equal(summaryBody.success, true);
+    assert.equal(summaryBody.data.books && typeof summaryBody.data.books, "object");
+
+    const ownedPreflight = await fetch(`${url}/proxy/adventure/available-user-content`, {
+      method: "OPTIONS",
+      headers: {
+        Origin: origin,
+        "Access-Control-Request-Method": "POST",
+      },
+    });
+    assert.equal(ownedPreflight.status, 200);
+    assert.equal(ownedPreflight.headers.get("access-control-allow-origin"), origin);
+
+    const ownedResponse = await fetch(`${url}/proxy/adventure/available-user-content`, {
+      method: "POST",
+      headers: {
+        Origin: origin,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ cobalt: "dummy", betaKey: "dummy" }),
+    });
+    assert.equal(ownedResponse.status, 200);
+    const ownedBody = await ownedResponse.json();
+    assert.equal(ownedBody.success, true);
+    assert.deepEqual(ownedBody.data, { bookIds: [], enhancementBookIds: [] });
+
+    const libraryResponse = await fetch(`${url}/proxy/library`, {
+      method: "POST",
+      headers: {
+        Origin: origin,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ cobalt: "dummy", betaKey: "dummy" }),
+    });
+    assert.equal(libraryResponse.status, 200);
+    const libraryBody = await libraryResponse.json();
+    assert.equal(libraryBody.success, true);
+    assert.deepEqual(libraryBody.data, []);
+  } finally {
+    await new Promise((resolve) => server.close(resolve));
+  }
+});
+
 test("proxy implements the /spells socket namespace for class spell jobs", async () => {
   const { io } = require("socket.io-client");
   const { createServer: createProxyServer } = require("../index.js");

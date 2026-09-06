@@ -104,6 +104,43 @@ app.get(configLookupCall, cors(), express.json(), (req, res) => {
 
 });
 
+const emptyAdventureSummary = {
+  version: null,
+  builtAt: null,
+  books: {},
+};
+
+app.options("/proxy/maps/metadata/summary", cors(), (req, res) => res.status(200).send());
+app.get("/proxy/maps/metadata/summary", cors(), (_req, res) => {
+  return res.status(200).json({
+    success: true,
+    message: "Adventure metadata summary unavailable on this proxy instance; returning an empty summary.",
+    data: emptyAdventureSummary,
+  });
+});
+
+const adventureOwnershipRoutes = ["/proxy/adventure/available-user-content", "/proxy/library"];
+app.options(adventureOwnershipRoutes, cors(), (req, res) => res.status(200).send());
+app.post(adventureOwnershipRoutes, cors(), express.json(), (req, res) => {
+  const isLibraryRoute = req.path === "/proxy/library";
+  if (isLibraryRoute) {
+    return res.status(200).json({
+      success: true,
+      message: "Adventure library unavailable on this proxy instance; returning an empty library.",
+      data: [],
+    });
+  }
+
+  return res.status(200).json({
+    success: true,
+    message: "Adventure ownership unavailable on this proxy instance; returning no owned books.",
+    data: {
+      bookIds: [],
+      enhancementBookIds: [],
+    },
+  });
+});
+
 /**
  * Returns raw json from DDB
  */
