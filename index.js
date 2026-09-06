@@ -21,6 +21,8 @@ const { imageProxyHandler } = require("./image.js");
 const app = express();
 const port = process.env.PORT || 3000;
 const DDB_AVAILABLE_USER_CONTENT_URL = "https://www.dndbeyond.com/mobile/api/v6/available-user-content";
+const DDB_BOOK_CODES_URL = "https://www.dndbeyond.com/mobile/api/v6/book-codes";
+const DDB_GET_BOOK_URL_BASE = "https://www.dndbeyond.com/mobile/api/v6/get-book-url";
 const BOOK_ENTITY_TYPE_ID = "496802664";
 
 function isTruthyFlag(value) {
@@ -144,6 +146,44 @@ async function fetchAvailableUserContent(cobalt) {
   return result.data;
 }
 
+async function fetchMobileApi(cobalt, url, extra = {}, requestKeySuffix = "") {
+  const form = new URLSearchParams();
+  form.append("token", `${cobalt}`);
+  Object.entries(extra).forEach(([key, value]) => {
+    if (value === undefined || value === null) return;
+    if (typeof value === "string") form.append(key, value);
+    else form.append(key, JSON.stringify(value));
+  });
+
+  const result = await fetchJsonWithRetry(
+    url,
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/x-www-form-urlencoded",
+      },
+      body: form.toString(),
+    },
+    {
+      retries: 2,
+      timeoutMs: 20000,
+      retryDelayMs: 300,
+      requestKey: `${requestKeySuffix}:${authentication.getCacheId(cobalt)}`,
+    },
+  );
+
+  if (!result.ok) {
+    throw new Error(`upstream failed with HTTP ${result.status}`);
+  }
+
+  const status = String(result?.data?.status ?? result?.data?.Status ?? "success").toLowerCase();
+  if (status !== "success") {
+    throw new Error(`upstream returned status=${status}`);
+  }
+
+  return result.data;
+}
+
 app.use((req, res, next) => {
   const incoming = req.headers["x-correlation-id"];
   const correlationId = typeof incoming === "string" && incoming.trim() !== ""
@@ -240,6 +280,82 @@ app.get("/proxy/maps/metadata/summary", cors(), (_req, res) => {
     message: "Adventure metadata summary unavailable on this proxy instance; returning an empty summary.",
     data: emptyAdventureSummary,
   });
+});
+
+const adventureBookRoutes = [
+  "/proxy/adventure/book-codes",
+  "/proxy/adventure/enhancement",
+  "/proxy/adventure/table-info",
+];
+app.options(adventureBookRoutes, cors(), (req, res) => res.status(200).send());
+
+app.post("/proxy/adventure/book-codes", cors(), express.json(), async (req, res) => {
+  const cobalt = req.body?.cobalt;
+  const sources = Array.isArray(req.body?.sources) ? req.body.sources : [];
+  const sourceId = Number(sources[0]?.sourceID ?? sources[0]?.sourceId ?? NaN);
+
+  if (!cobalt || cobalt === "") return res.status(200).json({ success: false, message: "No cobalt token" });
+  if (!Number.isFinite(sourceId)) return res.status(200).json({ success: false, message: "Invalid sources payload" });
+
+  try {
+    const payload = await fetchMobileApi(cobalt, DDB_BOOK_CODES_URL, { sources }, "adventure:book-codes");
+    const entries = Array.isArray(payload?.data) ? payload.data : (Array.isArray(payload) ? payload : []);
+    const source = entries.find((entry) => Number(entry?.sourceID ?? entry?.sourceId) === sourceId) ?? entries[0];
+    const keyBase64 = source?.data ?? null;
+    if (!keyBase64) {
+      return res.status(200).json({ success: false, message: `No book-code key found for source ${sourceId}` });
+    }
+    return res.status(200).json({ success: true, message: "Book code key retrieved.", data: keyBase64 });
+  } catch (error) {
+    console.log(`[ddb-proxy] [adventure] book-codes failed: ${error}`);
+    return res.status(200).json({
+      success: false,
+      message: `book-codes lookup failed: ${error instanceof Error ? error.message : String(error)}`,
+    });
+  }
+});
+
+app.options("/proxy/adventure/book-url/:bookId", cors(), (req, res) => res.status(200).send());
+app.post("/proxy/adventure/book-url/:bookId", cors(), express.json(), async (req, res) => {
+  const cobalt = req.body?.cobalt;
+  const bookId = Number(req.params?.bookId ?? req.body?.bookId ?? NaN);
+  if (!cobalt || cobalt === "") return res.status(200).json({ success: false, message: "No cobalt token" });
+  if (!Number.isFinite(bookId)) return res.status(200).json({ success: false, message: "Invalid book id" });
+
+  try {
+    const payload = await fetchMobileApi(cobalt, `${DDB_GET_BOOK_URL_BASE}/${bookId}`, {}, "adventure:book-url");
+    const url = payload?.data?.url ?? payload?.url ?? payload?.data ?? payload;
+    if (typeof url !== "string" || url.trim() === "") {
+      return res.status(200).json({ success: false, message: `No download url returned for book ${bookId}` });
+    }
+
+    let bookCode = String(bookId);
+    try {
+      const cfg = await lookup.getConfig();
+      const source = cfg?.sources?.find((s) => Number(s.id) === bookId);
+      if (source?.name) bookCode = String(source.name).toLowerCase();
+    } catch (_error) {
+      // keep fallback bookCode when config lookup is unavailable
+    }
+
+    return res.status(200).json({ success: true, message: "Book url retrieved.", data: { url, bookCode } });
+  } catch (error) {
+    console.log(`[ddb-proxy] [adventure] book-url failed: ${error}`);
+    return res.status(200).json({
+      success: false,
+      message: `book-url lookup failed: ${error instanceof Error ? error.message : String(error)}`,
+    });
+  }
+});
+
+// Optional adventure enrichers. The importer degrades cleanly when these are
+// empty; providing routes here avoids browser-level CORS failures.
+app.post("/proxy/adventure/enhancement", cors(), express.json(), (_req, res) => {
+  return res.status(200).json({ success: true, message: "No enhancement data available.", data: [] });
+});
+
+app.post("/proxy/adventure/table-info", cors(), express.json(), (_req, res) => {
+  return res.status(200).json({ success: true, message: "No table hints available.", data: [] });
 });
 
 const adventureOwnershipRoutes = ["/proxy/adventure/available-user-content", "/proxy/library"];

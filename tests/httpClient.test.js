@@ -112,22 +112,60 @@ test("proxy exposes a socket.io endpoint for importer websocket clients", async 
 test("proxy serves the adventure browser endpoints with CORS", async () => {
   const httpClient = require("../httpClient");
   const originalFetchJsonWithRetry = httpClient.fetchJsonWithRetry;
-  httpClient.fetchJsonWithRetry = async () => ({
-    ok: true,
-    status: 200,
-    data: {
-      status: "success",
-      Licenses: [
-        {
-          EntityTypeID: 496802664,
-          Entities: [
-            { id: 42, name: "Owned Book", isOwned: true, isReleased: true, hasEnhancement: true },
-            { id: 77, name: "Unowned Book", isOwned: false, isReleased: true, hasEnhancement: false },
+  httpClient.fetchJsonWithRetry = async (url) => {
+    if (url.includes("available-user-content")) {
+      return {
+        ok: true,
+        status: 200,
+        data: {
+          status: "success",
+          Licenses: [
+            {
+              EntityTypeID: 496802664,
+              Entities: [
+                { id: 42, name: "Owned Book", isOwned: true, isReleased: true, hasEnhancement: true },
+                { id: 77, name: "Unowned Book", isOwned: false, isReleased: true, hasEnhancement: false },
+              ],
+            },
           ],
         },
-      ],
-    },
-  });
+      };
+    }
+
+    if (url.includes("book-codes")) {
+      return {
+        ok: true,
+        status: 200,
+        data: {
+          status: "success",
+          data: [{ sourceID: 145, data: "ZmFrZS1rZXk=" }],
+        },
+      };
+    }
+
+    if (url.includes("get-book-url/145")) {
+      return {
+        ok: true,
+        status: 200,
+        data: {
+          status: "success",
+          data: "https://cdn.example.com/phb-2024.zip?sig=test",
+        },
+      };
+    }
+
+    if (url.includes("api/config/json")) {
+      return {
+        ok: true,
+        status: 200,
+        data: {
+          sources: [{ id: 145, name: "PHB-2024" }],
+        },
+      };
+    }
+
+    throw new Error(`Unexpected URL in mock: ${url}`);
+  };
 
   // Load index.js after patching httpClient so the route handler captures the mock.
   delete require.cache[require.resolve("../index.js")];
@@ -214,6 +252,56 @@ test("proxy serves the adventure browser endpoints with CORS", async () => {
     assert.equal(ownedOnlyLibraryBody.success, true);
     assert.equal(ownedOnlyLibraryBody.data.length, 1);
     assert.equal(ownedOnlyLibraryBody.data[0].id, 42);
+
+    const codesPreflight = await fetch(`${url}/proxy/adventure/book-codes`, {
+      method: "OPTIONS",
+      headers: {
+        Origin: origin,
+        "Access-Control-Request-Method": "POST",
+      },
+    });
+    assert.equal(codesPreflight.status, 204);
+    assert.equal(codesPreflight.headers.get("access-control-allow-origin"), "*");
+
+    const codesResponse = await fetch(`${url}/proxy/adventure/book-codes`, {
+      method: "POST",
+      headers: {
+        Origin: origin,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ cobalt: "dummy", betaKey: "dummy", sources: [{ sourceID: 145, versionID: null }] }),
+    });
+    assert.equal(codesResponse.status, 200);
+    const codesBody = await codesResponse.json();
+    assert.equal(codesBody.success, true);
+    assert.equal(codesBody.data, "ZmFrZS1rZXk=");
+
+    const bookUrlResponse = await fetch(`${url}/proxy/adventure/book-url/145`, {
+      method: "POST",
+      headers: {
+        Origin: origin,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ cobalt: "dummy", betaKey: "dummy" }),
+    });
+    assert.equal(bookUrlResponse.status, 200);
+    const bookUrlBody = await bookUrlResponse.json();
+    assert.equal(bookUrlBody.success, true);
+    assert.equal(bookUrlBody.data.bookCode, "phb-2024");
+    assert.equal(bookUrlBody.data.url.includes("phb-2024.zip"), true);
+
+    const tableInfoResponse = await fetch(`${url}/proxy/adventure/table-info`, {
+      method: "POST",
+      headers: {
+        Origin: origin,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ cobalt: "dummy", betaKey: "dummy", bookCode: "phb-2024" }),
+    });
+    assert.equal(tableInfoResponse.status, 200);
+    const tableInfoBody = await tableInfoResponse.json();
+    assert.equal(tableInfoBody.success, true);
+    assert.deepEqual(tableInfoBody.data, []);
   } finally {
     httpClient.fetchJsonWithRetry = originalFetchJsonWithRetry;
     delete require.cache[require.resolve("../index.js")];
