@@ -2,9 +2,15 @@ const CONFIG = require("./config.js");
 const authentication = require("./auth.js");
 const { fetchJsonWithRetry } = require("./httpClient");
 
+function getAuthHeaders(cacheId) {
+  const cacheEntry = authentication.CACHE_AUTH.exists(cacheId);
+  const token = cacheEntry?.data;
+  return token ? { headers: { Authorization: `Bearer ${token}` } } : {};
+}
+
 function getMonsterCount(cobaltId, searchTerm="", homebrew, homebrewOnly, sources) {
   return new Promise((resolve, reject) => {
-    const headers = (authentication.CACHE_AUTH.exists(cobaltId).data !== null) ? {headers: {"Authorization": `Bearer ${authentication.CACHE_AUTH.exists(cobaltId).data}`}} : {};
+    const headers = getAuthHeaders(cobaltId);
     const url = CONFIG.urls.monstersAPI(0,1, searchTerm, homebrew, homebrewOnly, sources);
     fetchJsonWithRetry(url, headers, {
       retries: 2,
@@ -49,7 +55,7 @@ const extractMonsters = (cobaltId, searchTerm="", homebrew, homebrewOnly, source
     console.log(`[ddb-proxy] [monsters] Retrieving monsters for ${cobaltId}`);
 
     let monsters = [];
-    const headers = (authentication.CACHE_AUTH.exists(cobaltId).data !== null) ? {headers: {"Authorization": `Bearer ${authentication.CACHE_AUTH.exists(cobaltId).data}`}} : {};
+    const headers = getAuthHeaders(cobaltId);
     let count = 0;
     // fetch 100 monsters at a time - api limit
     let take = 100;
@@ -113,10 +119,7 @@ function extractMonstersById (cobaltId, ids) {
       const hardTotal = total;
       while (total >= count && hardTotal >= count) {
         const idSelection = ids.slice(count, count + take);
-        const headers
-          = authentication.CACHE_AUTH.exists(cobaltId).data !== null
-            ? { headers: { Authorization: `Bearer ${authentication.CACHE_AUTH.exists(cobaltId).data}` } }
-            : {};
+        const headers = getAuthHeaders(cobaltId);
         const url = CONFIG.urls.monsterIdsAPI(idSelection);
         await fetchJsonWithRetry(url, headers, {
           retries: 2,

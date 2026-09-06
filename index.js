@@ -836,10 +836,9 @@ function createServer(options = {}) {
               const ids = Array.isArray(params?.ids) ? params.ids : [];
               if (ids.length === 0) throw new Error("Please supply required monster ids.");
 
-              const hash = crypto.createHash("sha256");
-              hash.update(cobalt + ids.join("-"));
-              const cacheId = hash.digest("hex");
-              const data = await monsters.extractMonstersById(cacheId, ids);
+              // Reuse the auth cache key established during socket auth.
+              const authCacheId = authentication.getCacheId(cobalt);
+              const data = await monsters.extractMonstersById(authCacheId, ids);
               socket.emit("event", { seq: 1, kind: "monsters", payload: data });
               socket.emit("event", { seq: 2, kind: "done", payload: { count: data.length } });
               return;
