@@ -23,6 +23,12 @@ const port = process.env.PORT || 3000;
 const DDB_AVAILABLE_USER_CONTENT_URL = "https://www.dndbeyond.com/mobile/api/v6/available-user-content";
 const DDB_BOOK_CODES_URL = "https://www.dndbeyond.com/mobile/api/v6/book-codes";
 const DDB_GET_BOOK_URL_BASE = "https://www.dndbeyond.com/mobile/api/v6/get-book-url";
+const DDB_GAME_DATA_BASE_URL = "https://character-service.dndbeyond.com/character/v5/game-data";
+const DDB_CLASSES_URL = `${DDB_GAME_DATA_BASE_URL}/classes`;
+const DDB_FEATS_URL = `${DDB_GAME_DATA_BASE_URL}/feats`;
+const DDB_BACKGROUNDS_URL = `${DDB_GAME_DATA_BASE_URL}/backgrounds`;
+const DDB_RACES_URL = `${DDB_GAME_DATA_BASE_URL}/races`;
+const DDB_SUBCLASSES_URL = `${DDB_GAME_DATA_BASE_URL}/subclasses`;
 const BOOK_ENTITY_TYPE_ID = "496802664";
 
 function isTruthyFlag(value) {
@@ -182,6 +188,89 @@ async function fetchMobileApi(cobalt, url, extra = {}, requestKeySuffix = "") {
   }
 
   return result.data;
+}
+
+function getBearerHeaders(token) {
+  return {
+    Authorization: `Bearer ${token}`,
+  };
+}
+
+function sourceIdMatches(definition, sourceIds = []) {
+  if (!Array.isArray(sourceIds) || sourceIds.length === 0) return true;
+  const sourceSet = new Set(sourceIds.map((id) => Number(id)).filter((id) => Number.isFinite(id)));
+  if (sourceSet.size === 0) return true;
+  const sources = Array.isArray(definition?.sources) ? definition.sources : [];
+  if (sources.length === 0) return true;
+  return sources.some((source) => sourceSet.has(Number(source?.sourceId)));
+}
+
+function includeByHomebrew(definition, { includeHomebrew = false, onlyHomebrew = false } = {}) {
+  const isHomebrew = !!definition?.isHomebrew;
+  if (onlyHomebrew) return isHomebrew;
+  if (!includeHomebrew && isHomebrew) return false;
+  return true;
+}
+
+function isRulesVersionMatch(definition, rulesVersion = null) {
+  if (!rulesVersion) return true;
+  if (rulesVersion === "2014") return !!definition?.isLegacy;
+  if (rulesVersion === "2024") return !definition?.isLegacy;
+  return true;
+}
+
+async function fetchGameDataList({
+  url,
+  token,
+  requestKey,
+  filters = {},
+} = {}) {
+  const result = await fetchJsonWithRetry(
+    url,
+    {
+      method: "GET",
+      headers: getBearerHeaders(token),
+    },
+    {
+      retries: 2,
+      timeoutMs: 20000,
+      retryDelayMs: 300,
+      requestKey,
+    },
+  );
+
+  if (!result.ok || !result?.data?.success) {
+    const message = result?.data?.message ?? `upstream failed with HTTP ${result.status}`;
+    throw new Error(message);
+  }
+
+  let definitions = Array.isArray(result.data.data) ? result.data.data : [];
+  definitions = definitions
+    .filter((definition) => sourceIdMatches(definition, filters.sources))
+    .filter((definition) => includeByHomebrew(definition, filters))
+    .filter((definition) => isRulesVersionMatch(definition, filters.rulesVersion));
+
+  return definitions;
+}
+
+function cloneCharacterWithUpdates(baseCharacter, updates = {}) {
+  const clone = structuredClone(baseCharacter);
+  if (updates && typeof updates === "object") {
+    Object.keys(updates).forEach((key) => {
+      clone[key] = updates[key];
+    });
+  }
+  return clone;
+}
+
+function slimCharacter(characterData) {
+  return {
+    id: characterData?.id,
+    name: characterData?.name,
+    campaign: {
+      id: characterData?.campaign?.id ?? null,
+    },
+  };
 }
 
 app.use((req, res, next) => {
@@ -482,23 +571,188 @@ app.post("/proxy/class/spells", cors(), express.json(), (req, res) => {
   });
 });
 
-// Compatibility endpoints expected by the importer's mule list UI. This local
-// proxy does not implement mule catalog APIs, so return a structured response
-// (with CORS) instead of a browser-level preflight failure.
+// Mule catalog/list endpoints consumed by the importer.
 const muleCatalogRoutes = [
   "/proxy/classes",
   "/proxy/feats",
   "/proxy/backgrounds",
   "/proxy/races",
   "/proxy/subclass",
+  "/proxy/character/check",
 ];
 app.options(muleCatalogRoutes, cors(), (req, res) => res.status(200).send());
-app.post(muleCatalogRoutes, cors(), express.json(), (req, res) => {
-  return res.status(200).json({
-    success: false,
-    message: `Endpoint ${req.path} is not implemented on this proxy instance.`,
-    data: [],
-  });
+
+app.post("/proxy/classes", cors(), express.json(), async (req, res) => {
+  const cobalt = req.body?.cobalt;
+  const sourceIds = Array.isArray(req.body?.sources) ? req.body.sources : [];
+  const includeHomebrew = !!req.body?.includeHomebrew;
+  const onlyHomebrew = !!req.body?.onlyHomebrew;
+
+  if (!cobalt || cobalt === "") return res.status(200).json({ success: false, message: "No cobalt token", data: [] });
+
+  try {
+    const cacheId = authentication.getCacheId(cobalt);
+    const token = await authentication.getBearerToken(cacheId, cobalt);
+    if (!token) return res.status(200).json({ success: false, message: "You must supply a valid cobalt value.", data: [] });
+
+    const classes = await fetchGameDataList({
+      url: DDB_CLASSES_URL,
+      token,
+      requestKey: `mule:classes:${cacheId}`,
+      filters: { sources: sourceIds, includeHomebrew, onlyHomebrew },
+    });
+
+    return res.status(200).json({ success: true, message: "Classes successfully received.", data: classes });
+  } catch (error) {
+    return res.status(200).json({ success: false, message: `Class lookup failed: ${error instanceof Error ? error.message : String(error)}`, data: [] });
+  }
+});
+
+app.post("/proxy/feats", cors(), express.json(), async (req, res) => {
+  const cobalt = req.body?.cobalt;
+  const sourceIds = Array.isArray(req.body?.sources) ? req.body.sources : [];
+  const includeHomebrew = !!req.body?.includeHomebrew;
+  const onlyHomebrew = !!req.body?.onlyHomebrew;
+
+  if (!cobalt || cobalt === "") return res.status(200).json({ success: false, message: "No cobalt token", data: [] });
+
+  try {
+    const cacheId = authentication.getCacheId(cobalt);
+    const token = await authentication.getBearerToken(cacheId, cobalt);
+    if (!token) return res.status(200).json({ success: false, message: "You must supply a valid cobalt value.", data: [] });
+
+    const feats = await fetchGameDataList({
+      url: DDB_FEATS_URL,
+      token,
+      requestKey: `mule:feats:${cacheId}`,
+      filters: { sources: sourceIds, includeHomebrew, onlyHomebrew },
+    });
+
+    const data = feats.map((feat) => ({
+      id: feat.id,
+      name: feat.name,
+      sources: Array.isArray(feat.sources) ? feat.sources : [],
+      isHomebrew: !!feat.isHomebrew,
+    }));
+
+    return res.status(200).json({ success: true, message: "Feats successfully received.", data });
+  } catch (error) {
+    return res.status(200).json({ success: false, message: `Feat lookup failed: ${error instanceof Error ? error.message : String(error)}`, data: [] });
+  }
+});
+
+app.post("/proxy/backgrounds", cors(), express.json(), async (req, res) => {
+  const cobalt = req.body?.cobalt;
+  const sourceIds = Array.isArray(req.body?.sources) ? req.body.sources : [];
+  const includeHomebrew = !!req.body?.includeHomebrew;
+  const onlyHomebrew = !!req.body?.onlyHomebrew;
+
+  if (!cobalt || cobalt === "") return res.status(200).json({ success: false, message: "No cobalt token", data: [] });
+
+  try {
+    const cacheId = authentication.getCacheId(cobalt);
+    const token = await authentication.getBearerToken(cacheId, cobalt);
+    if (!token) return res.status(200).json({ success: false, message: "You must supply a valid cobalt value.", data: [] });
+
+    const backgrounds = await fetchGameDataList({
+      url: DDB_BACKGROUNDS_URL,
+      token,
+      requestKey: `mule:backgrounds:${cacheId}`,
+      filters: { sources: sourceIds, includeHomebrew, onlyHomebrew },
+    });
+
+    const data = backgrounds.map((background) => ({
+      id: background.id,
+      name: background.name,
+      sources: Array.isArray(background.sources) ? background.sources : [],
+      isHomebrew: !!background.isHomebrew,
+    }));
+
+    return res.status(200).json({ success: true, message: "Backgrounds successfully received.", data });
+  } catch (error) {
+    return res.status(200).json({ success: false, message: `Background lookup failed: ${error instanceof Error ? error.message : String(error)}`, data: [] });
+  }
+});
+
+app.post("/proxy/races", cors(), express.json(), async (req, res) => {
+  const cobalt = req.body?.cobalt;
+  const sourceIds = Array.isArray(req.body?.sources) ? req.body.sources : [];
+  const includeHomebrew = !!req.body?.includeHomebrew;
+  const onlyHomebrew = !!req.body?.onlyHomebrew;
+
+  if (!cobalt || cobalt === "") return res.status(200).json({ success: false, message: "No cobalt token", data: [] });
+
+  try {
+    const cacheId = authentication.getCacheId(cobalt);
+    const token = await authentication.getBearerToken(cacheId, cobalt);
+    if (!token) return res.status(200).json({ success: false, message: "You must supply a valid cobalt value.", data: [] });
+
+    const races = await fetchGameDataList({
+      url: DDB_RACES_URL,
+      token,
+      requestKey: `mule:races:${cacheId}`,
+      filters: { sources: sourceIds, includeHomebrew, onlyHomebrew },
+    });
+
+    return res.status(200).json({ success: true, message: "Races successfully received.", data: races });
+  } catch (error) {
+    return res.status(200).json({ success: false, message: `Race lookup failed: ${error instanceof Error ? error.message : String(error)}`, data: [] });
+  }
+});
+
+app.post("/proxy/subclass", cors(), express.json(), async (req, res) => {
+  const cobalt = req.body?.cobalt;
+  const className = req.body?.className ?? "";
+  const includeHomebrew = !!req.body?.includeHomebrew;
+  const rulesVersion = req.body?.rulesVersion ?? null;
+
+  if (!cobalt || cobalt === "") return res.status(200).json({ success: false, message: "No cobalt token", data: [] });
+  if (!className) return res.status(200).json({ success: false, message: "className is required", data: [] });
+
+  try {
+    const cacheId = authentication.getCacheId(cobalt);
+    const token = await authentication.getBearerToken(cacheId, cobalt);
+    if (!token) return res.status(200).json({ success: false, message: "You must supply a valid cobalt value.", data: [] });
+
+    const subclasses = await fetchGameDataList({
+      url: DDB_SUBCLASSES_URL,
+      token,
+      requestKey: `mule:subclasses:${cacheId}:${className}`,
+      filters: { includeHomebrew, rulesVersion },
+    });
+
+    const filtered = subclasses.filter((entry) => {
+      const parentName = String(entry?.parentClassName ?? entry?.className ?? "").toLowerCase();
+      return parentName === String(className).toLowerCase();
+    });
+
+    return res.status(200).json({ success: true, message: "Subclasses successfully received.", data: filtered });
+  } catch (error) {
+    return res.status(200).json({ success: false, message: `Subclass lookup failed: ${error instanceof Error ? error.message : String(error)}`, data: [] });
+  }
+});
+
+app.post("/proxy/character/check", cors(), express.json(), async (req, res) => {
+  const cobalt = req.body?.cobalt;
+  const characterIds = Array.isArray(req.body?.characterIds) ? req.body.characterIds : [];
+
+  if (!cobalt || cobalt === "") return res.status(200).json({ success: false, message: "No cobalt token", data: [] });
+  if (characterIds.length === 0) return res.status(200).json({ success: true, message: "No character ids supplied.", data: [] });
+
+  try {
+    const slimResults = [];
+    for (const characterId of characterIds) {
+      const cobaltId = `${characterId}${cobalt}`;
+      const token = await authentication.getBearerToken(cobaltId, cobalt);
+      if (!token) continue;
+      const characterData = await character.extractCharacterData(cobaltId, characterId);
+      slimResults.push(slimCharacter(characterData));
+    }
+
+    return res.status(200).json({ success: true, message: "Characters checked.", data: slimResults });
+  } catch (error) {
+    return res.status(200).json({ success: false, message: `Character check failed: ${error instanceof Error ? error.message : String(error)}`, data: [] });
+  }
 });
 
 /**
@@ -731,10 +985,9 @@ function createServer(options = {}) {
       });
 
       socket.on("auth", async (payload, callback) => {
-        const supportedNamespaces = ["/monsters", "/spells", "/items"];
+        const supportedNamespaces = ["/monsters", "/spells", "/items", "/mule"];
         if (!supportedNamespaces.includes(namespace)) {
-          const message = `Streaming socket namespace ${namespace} is not implemented on this ddb-proxy instance; HTTP fallback is required.`;
-          console.warn(`[ddb-proxy] [socket.io:${label}] auth rejected: ${message}`);
+          const message = `Streaming socket namespace ${namespace} is not implemented on this ddb-proxy instance.`;
           if (typeof callback === "function") {
             callback({ ok: false, message });
           } else {
@@ -749,7 +1002,10 @@ function createServer(options = {}) {
           return;
         }
 
-        const cacheId = authentication.getCacheId(cobalt);
+        const streamCharacterId = payload?.characterId ?? null;
+        const cacheId = namespace === "/mule"
+          ? `${streamCharacterId}${cobalt}`
+          : authentication.getCacheId(cobalt);
         const token = await authentication.getBearerToken(cacheId, cobalt);
         if (!token) {
           if (typeof callback === "function") callback({ ok: false, message: "You must supply a valid cobalt value." });
@@ -760,14 +1016,17 @@ function createServer(options = {}) {
           cobalt,
           betaKey: payload?.betaKey,
           campaignId: payload?.campaignId ?? null,
-          characterId: payload?.characterId ?? null,
+          characterId: streamCharacterId,
+          cobaltId: cacheId,
         };
         if (typeof callback === "function") {
           const authMessage = namespace === "/spells"
             ? "Spell streaming auth ok"
             : namespace === "/items"
               ? "Item streaming auth ok"
-              : "Monster streaming auth ok";
+              : namespace === "/mule"
+                ? "Mule streaming auth ok"
+                : "Monster streaming auth ok";
           callback({ ok: true, message: authMessage });
         }
       });
@@ -777,14 +1036,13 @@ function createServer(options = {}) {
           "/monsters": ["all-monsters", "monsters-by-id"],
           "/spells": ["class-spells"],
           "/items": ["all-items"],
+          "/mule": ["class", "feat", "background", "species"],
         };
         const supported = supportedForNamespace[namespace] ?? [];
         if (!supported.includes(payload?.element)) {
-          const message = namespace === "/spells"
-            ? `Stream jobs are not available on ${namespace}; use the HTTP endpoint instead.`
-            : namespace === "/items"
-              ? `Stream jobs are not available on ${namespace}; use the HTTP endpoint instead.`
-              : `Unsupported monsters stream element: ${payload?.element}`;
+          const message = namespace === "/monsters"
+            ? `Unsupported monsters stream element: ${payload?.element}`
+            : `Unsupported stream element ${payload?.element} for namespace ${namespace}`;
           console.warn(`[ddb-proxy] [socket.io:${label}] start rejected: ${message}`);
           if (typeof callback === "function") callback({ ok: false, message });
           return;
@@ -804,9 +1062,14 @@ function createServer(options = {}) {
           callback({ ok: true, jobId, jobToken, replayed: 0 });
         }
 
+        let seq = 0;
+        const emitEvent = (kind, eventPayload = {}, extra = {}) => {
+          socket.emit("event", { seq: ++seq, kind, payload: eventPayload, ...extra });
+        };
+
         const emitFailure = (error) => {
           const message = error instanceof Error ? error.message : String(error);
-          socket.emit("event", { seq: 1, kind: "error", payload: { message, fatal: true } });
+          emitEvent("error", { message, fatal: true });
         };
 
         (async () => {
@@ -838,16 +1101,222 @@ function createServer(options = {}) {
 
               const data = await spells.loadSpells(mockClass, cobalt, true);
               const rawSpells = data.map((entry) => entry.spells).flat();
-              socket.emit("event", { seq: 1, kind: "classSpells", payload: { spells: rawSpells } });
-              socket.emit("event", { seq: 2, kind: "done", payload: { count: rawSpells.length, className, rulesVersion } });
+              emitEvent("classSpells", { spells: rawSpells });
+              emitEvent("done", { count: rawSpells.length, className, rulesVersion });
               return;
             }
 
             if (namespace === "/items") {
               const campaignId = params?.campaignId ?? socket.data.ddbAuth?.campaignId ?? null;
               const data = await items.extractItems(authentication.getCacheId(cobalt), campaignId);
-              socket.emit("event", { seq: 1, kind: "items", payload: { items: data, spells: [], extra: [] } });
-              socket.emit("event", { seq: 2, kind: "done", payload: { count: data.length } });
+              emitEvent("items", { items: data, spells: [], extra: [] });
+              emitEvent("done", { count: data.length });
+              return;
+            }
+
+            if (namespace === "/mule") {
+              const streamCharacterId = Number(params?.characterId ?? socket.data.ddbAuth?.characterId ?? 0);
+              if (!Number.isFinite(streamCharacterId) || streamCharacterId <= 0) {
+                throw new Error("A valid characterId is required for mule streaming.");
+              }
+
+              const cobaltId = socket.data.ddbAuth?.cobaltId ?? `${streamCharacterId}${cobalt}`;
+              const authToken = await authentication.getBearerToken(cobaltId, cobalt);
+              if (!authToken) throw new Error("You must supply a valid cobalt value.");
+
+              const campaignId = params?.campaignId ?? socket.data.ddbAuth?.campaignId ?? null;
+              const sources = Array.isArray(params?.sources) ? params.sources : [];
+              const includeHomebrew = !!params?.includeHomebrew;
+              const onlyHomebrew = !!params?.onlyHomebrew;
+              const filterIds = Array.isArray(params?.filterIds) ? params.filterIds.map((id) => Number(id)) : [];
+              const filterIdSet = new Set(filterIds.filter((id) => Number.isFinite(id)));
+              const rulesVersion = params?.systemRules ?? null;
+
+              const baseCharacter = await character.extractCharacterData(cobaltId, streamCharacterId);
+              emitEvent("baseCharacter", baseCharacter);
+
+              let classOptions = [];
+              if (params?.includeOptionalClassFeatures && Array.isArray(baseCharacter?.optionalClassFeatures)) {
+                const optionIds = baseCharacter.optionalClassFeatures
+                  .map((opt) => Number(opt?.classFeatureId))
+                  .filter((id) => Number.isFinite(id));
+                if (optionIds.length > 0) {
+                  try {
+                    classOptions = await character.extractClassOptions(cobaltId, optionIds, campaignId);
+                  } catch (_error) {
+                    classOptions = [];
+                  }
+                }
+              }
+              emitEvent("options", classOptions);
+
+              if (element === "class") {
+                const classId = Number(params?.classId);
+                if (!Number.isFinite(classId)) throw new Error("classId is required for class mule jobs.");
+
+                const classes = await fetchGameDataList({
+                  url: DDB_CLASSES_URL,
+                  token: authToken,
+                  requestKey: `mule:stream:classes:${cobaltId}`,
+                  filters: { sources, includeHomebrew, onlyHomebrew },
+                });
+                const selectedClass = classes.find((klass) => Number(klass?.id) === classId);
+                if (!selectedClass) throw new Error(`Class id ${classId} was not found for the current source/homebrew filters.`);
+
+                const allSubclasses = await fetchGameDataList({
+                  url: DDB_SUBCLASSES_URL,
+                  token: authToken,
+                  requestKey: `mule:stream:subclasses:${cobaltId}:${classId}`,
+                  filters: { includeHomebrew, onlyHomebrew, rulesVersion },
+                });
+                const subClasses = allSubclasses.filter((subClass) => Number(subClass?.parentClassId) === classId);
+
+                emitEvent("class", selectedClass);
+                emitEvent("subClasses", subClasses);
+
+                const total = subClasses.length;
+                for (const [index, subClass] of subClasses.entries()) {
+                  const classData = Array.isArray(baseCharacter?.classes)
+                    ? baseCharacter.classes.map((klass) => {
+                        const definitionId = Number(klass?.definition?.id);
+                        if (definitionId !== classId) return klass;
+                        return {
+                          ...klass,
+                          subclassDefinition: subClass,
+                        };
+                      })
+                    : [];
+
+                  emitEvent("subClassStart", { name: subClass?.name ?? "Subclass" }, { index: index + 1, total });
+                  const subClassPayload = {
+                    debug: {
+                      subClassId: subClass?.id,
+                      subclassName: subClass?.name,
+                    },
+                    data: {
+                      classes: classData,
+                    },
+                  };
+                  emitEvent("subClassData", subClassPayload, { subClassId: subClass?.id, index: index + 1, total });
+                  emitEvent("subClassChoices", subClassPayload, { subClassId: subClass?.id, index: index + 1, total, pass: 1 });
+                }
+
+                emitEvent("done", {
+                  count: subClasses.length,
+                  element,
+                  classId,
+                });
+                return;
+              }
+
+              if (element === "feat") {
+                let feats = await fetchGameDataList({
+                  url: DDB_FEATS_URL,
+                  token: authToken,
+                  requestKey: `mule:stream:feats:${cobaltId}`,
+                  filters: { sources, includeHomebrew, onlyHomebrew },
+                });
+                if (filterIdSet.size > 0) {
+                  feats = feats.filter((feat) => filterIdSet.has(Number(feat?.id)));
+                }
+
+                const total = feats.length;
+                for (const [index, feat] of feats.entries()) {
+                  const baseFeats = Array.isArray(baseCharacter?.feats) ? structuredClone(baseCharacter.feats) : [];
+                  baseFeats.push({
+                    componentId: null,
+                    componentTypeId: 1088085227,
+                    definition: feat,
+                  });
+
+                  emitEvent("featOptions", {
+                    debug: {
+                      featId: feat?.id,
+                      featName: feat?.name,
+                      chunkIndex: index + 1,
+                    },
+                    data: {
+                      feats: baseFeats,
+                    },
+                  }, {
+                    index: index + 1,
+                    total,
+                    repeatable: false,
+                  });
+                }
+
+                emitEvent("done", { count: feats.length, element });
+                return;
+              }
+
+              if (element === "background") {
+                let backgrounds = await fetchGameDataList({
+                  url: DDB_BACKGROUNDS_URL,
+                  token: authToken,
+                  requestKey: `mule:stream:backgrounds:${cobaltId}`,
+                  filters: { sources, includeHomebrew, onlyHomebrew },
+                });
+                if (filterIdSet.size > 0) {
+                  backgrounds = backgrounds.filter((background) => filterIdSet.has(Number(background?.id)));
+                }
+
+                const total = backgrounds.length;
+                for (const [index, background] of backgrounds.entries()) {
+                  const characterWithBackground = cloneCharacterWithUpdates(baseCharacter, {
+                    background: {
+                      ...(baseCharacter?.background ?? {}),
+                      definition: background,
+                    },
+                  });
+
+                  emitEvent("backgroundOptions", {
+                    backgroundResponse: {
+                      data: characterWithBackground,
+                    },
+                    backgroundChoices: [],
+                    backgroundEquipment: {
+                      slots: [],
+                    },
+                  }, {
+                    index: index + 1,
+                    total,
+                  });
+                }
+
+                emitEvent("done", { count: backgrounds.length, element });
+                return;
+              }
+
+              let races = await fetchGameDataList({
+                url: DDB_RACES_URL,
+                token: authToken,
+                requestKey: `mule:stream:races:${cobaltId}`,
+                filters: { sources, includeHomebrew, onlyHomebrew },
+              });
+              if (filterIdSet.size > 0) {
+                races = races.filter((race) => filterIdSet.has(Number(race?.entityRaceId)));
+              }
+
+              const raceTotal = races.length;
+              for (const [index, race] of races.entries()) {
+                const characterWithRace = cloneCharacterWithUpdates(baseCharacter, {
+                  race,
+                });
+
+                emitEvent("speciesOptions", {
+                  debug: {
+                    raceId: race?.entityRaceId,
+                    raceName: race?.fullName ?? race?.baseName,
+                  },
+                  data: characterWithRace,
+                }, {
+                  raceIndex: index + 1,
+                  raceTotal,
+                  pass: 1,
+                });
+              }
+
+              emitEvent("done", { count: races.length, element });
               return;
             }
 
@@ -858,8 +1327,8 @@ function createServer(options = {}) {
               // Reuse the auth cache key established during socket auth.
               const authCacheId = authentication.getCacheId(cobalt);
               const data = await monsters.extractMonstersById(authCacheId, ids);
-              socket.emit("event", { seq: 1, kind: "monsters", payload: data });
-              socket.emit("event", { seq: 2, kind: "done", payload: { count: data.length } });
+              emitEvent("monsters", data);
+              emitEvent("done", { count: data.length });
               return;
             }
 
@@ -884,8 +1353,8 @@ function createServer(options = {}) {
               ? legacyFiltered.filter((monster) => monster.name.toLowerCase() === search.toLowerCase())
               : legacyFiltered;
 
-            socket.emit("event", { seq: 1, kind: "monsters", payload: finalData });
-            socket.emit("event", { seq: 2, kind: "done", payload: { count: finalData.length } });
+            emitEvent("monsters", finalData);
+            emitEvent("done", { count: finalData.length });
           } catch (error) {
             emitFailure(error);
           }
