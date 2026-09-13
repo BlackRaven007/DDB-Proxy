@@ -37,7 +37,6 @@ const extractSpells = (classInfo, cobaltId) => {
       requestKey: `spells:${cobaltId}:${id}:${classInfo.campaignId ?? "none"}`,
     })
       .then(({ data: json, ok }) => {
-        // console.log(json.data.map(sp => sp.definition.name).join(", "));
         if (ok && isValidData(json)) {
           const filteredSpells = filterByLevel(json.data, spellLevelAccess).filter(item => {
             if (item.definition.sources && item.definition.sources.some((source) => source.sourceId === 39)) {
@@ -76,7 +75,6 @@ const extractAlwaysPreparedSpells = (classInfo, spellListIds=[]) => {
       requestKey: `always-prepared:${id}:${classInfo.campaignId ?? "none"}:${spellListIds.join("-")}`,
     })
       .then(({ data: json, ok }) => {
-        // console.log(json.data.map(sp => sp.definition.name).join(", "));
         if (ok && isValidData(json)) {
           const filteredSpells = filterByLevel(json.data, spellLevelAccess).filter(item => {
             if (item.definition.sources && item.definition.sources.some((source) => source.sourceId === 39)) {
@@ -110,7 +108,6 @@ const extractAlwaysKnownSpells = (classInfo, cobaltId, cantrips, spellListIds=[]
 
     const url = CONFIG.urls.alwaysKnownSpells(id, 20, classInfo.campaignId, spellListIds, classInfo.backgroundId);
     console.log(`[ddb-proxy] [spells] Always-known spell URL: ${url}`);
-    // console.log(`Bearer ${authentication.CACHE_AUTH.exists(cobaltId).data}`);
     const headers = (authentication.CACHE_AUTH.exists(cobaltId).data !== null) ? {headers: {"Authorization": `Bearer ${authentication.CACHE_AUTH.exists(cobaltId).data}`}} : {};
     fetchJsonWithRetry(url, headers, {
       retries: 2,
@@ -119,7 +116,6 @@ const extractAlwaysKnownSpells = (classInfo, cobaltId, cantrips, spellListIds=[]
       requestKey: `always-known:${cobaltId}:${id}:${classInfo.campaignId ?? "none"}:${spellListIds.join("-")}`,
     })
       .then(({ data: json, ok }) => {
-        // console.log(json.data.map(sp => sp.definition.name).join(", "));
         if (ok && isValidData(json)) {
           const noCantripSpells = (cantrips) ? json.data : removeCantrips(json.data);
           const filteredSpells = filterByLevel(noCantripSpells, spellLevelAccess).filter(item => {
@@ -149,7 +145,6 @@ const extractAlwaysKnownSpells = (classInfo, cobaltId, cantrips, spellListIds=[]
 const extractCasterLevel = (cls, isMultiClassing) => {
   let casterLevel = 0;
   if (isMultiClassing) {
-    // get the casting level if the character is a multiclassed spellcaster
     if (cls.definition.spellRules && cls.definition.spellRules.multiClassSpellSlotDivisor) {
       casterLevel = Math.floor(cls.level / cls.definition.spellRules.multiClassSpellSlotDivisor);
     }

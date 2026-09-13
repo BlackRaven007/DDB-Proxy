@@ -129,7 +129,6 @@ function extractMonstersById (cobaltId, ids) {
         })
           .then(({ data: json, ok }) => {
             if (!ok) throw new Error("Monster by-id fetch failed");
-            // console.log(json.data);
             const availableMonsters = json.data.filter((monster) => monster.isReleased === true || monster.isHomebrew);
             const imageFiddledMonsters = imageFiddleMonsters(availableMonsters);
             monsters.push(...imageFiddledMonsters);

@@ -76,9 +76,7 @@ function isStartingClass(data, className) {
  */
 function getClassModifiers(data, classFeatures, isStartingClass = false) {
   const modifiers = data.modifiers.class.filter(classModifier => {
-    // check the class from which this modifier came
     const componentId = classModifier.componentId;
-    //const feature = classFeatures.find(feature => feature.id === componentId || chosenOptions.includes(feature.id));
     const feature = classFeatures.find(feature => feature.id === componentId);
     if (feature !== undefined) {
       const isFeatureAvailable = classModifier.availableToMulticlass ? true : isStartingClass;
@@ -126,9 +124,6 @@ function getClassOptionModifiers(data) {
  * @returns {[object[]]} an array containing an array of filtered modifiers, grouped by class
  */
 function filterModifiers(data, classInfo) {
-  // get the classFeatures for all classes
-  //const classInfo = getClassInfo(data);
-
   data.classes.forEach((cls, index) => {
     const features = getClassFeatures(cls, cls.level);
     classInfo[index].modifiers = getClassModifiers(data, features, isStartingClass(data, cls.definition.name));
@@ -136,12 +131,6 @@ function filterModifiers(data, classInfo) {
   return classInfo;
 }
 
-/**
- * =============================================================
- * MAIN
- * =============================================================
- * Get the class information for this character
- */
 function main(data) {
   console.log("[ MODIFIERS ====================================================== ]");
   const classInfo = getClassInfo(data.character);

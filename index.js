@@ -550,10 +550,7 @@ app.post("/proxy/class/spells", cors(), express.json(), (req, res) => {
     spells
       .loadSpells(mockClass, cacheId, true)
       .then((data) => {
-        // console.log(data);
         const rawSpells = data.map((d) => d.spells).flat();
-        // const parsedSpells = getSpells(rawSpells);
-        // return parsedSpells;
         return rawSpells;
       })
       .then((data) => {

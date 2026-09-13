@@ -22,7 +22,6 @@ const extractItems = (cobaltId, campaignId) => {
       requestKey: `items:${cobaltId}:${campaignId ?? "none"}`,
     })
       .then(({ data: json, ok }) => {
-        // console.log(json.data.map(sp => sp.definition.name).join(", "));
         if (ok && isValidData(json)) {
           const filteredItems = json.data.filter(item =>
             item.sources && (item.sources.length === 0 || item.sources.some((source) => source.sourceId != 39))
