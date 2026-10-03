@@ -58,23 +58,25 @@ const CONFIG = {
       if (campaignId) campaign = `&campaignId=${campaignId}`;
       return `${CONFIG.urls.baseUrl}/game-data/items?sharingSetting=2${campaign}`;
     },
-    monstersAPI: (skip, take, search="", homebrew=false, homebrewOnly=false, sources=[]) => {
+    monstersAPI: (skip, take, search="", homebrew=false, homebrewOnly=false, sources=[], campaignId=null) => {
       let sourceSearch = sources.reduce((previous, current) => previous + `&sources=${current}`, "");
       let useHomebrew = (homebrew) ? "" : "&showHomebrew=f";
+      let campaign = campaignId ? `&campaignId=${campaignId}` : "";
       if (homebrewOnly) {
         sourceSearch = "";
         useHomebrew = "&showHomebrew=t";
       }
-      const url = `${CONFIG.urls.monsterBaseUrl}?search=${search}&skip=${skip}&take=${take}${useHomebrew}${sourceSearch}`;
+      const url = `${CONFIG.urls.monsterBaseUrl}?search=${search}&skip=${skip}&take=${take}${useHomebrew}${sourceSearch}${campaign}`;
       console.log(url);
       return url;
     },
-    monsterIdsAPI: (ids) => {
+    monsterIdsAPI: (ids, campaignId=null) => {
       const idString = ids.reduce((previous, current) => {
         const pre = previous === "" ? "?ids=" : "&ids=";
         return previous + `${pre}${current}`;
       }, "");
-      const url = `${CONFIG.urls.monsterBaseUrl}${idString}`;
+      const campaign = campaignId ? `${idString === "" ? "?" : "&"}campaignId=${campaignId}` : "";
+      const url = `${CONFIG.urls.monsterBaseUrl}${idString}${campaign}`;
       console.log(url);
       return url;
     },

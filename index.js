@@ -853,6 +853,7 @@ app.post(getMonsterProxyRoutes, cors(), express.json(), (req, res) => {
   const performExactMatch = exactNameMatch && searchTerm && searchTerm !== "";
 
   const sources = req.body.sources || [];
+  const campaignId = req.body.campaignId ?? null;
 
   const hash = crypto.createHash("sha256");
   hash.update(cobalt + searchTerm);
@@ -862,7 +863,7 @@ app.post(getMonsterProxyRoutes, cors(), express.json(), (req, res) => {
     if (!token) return res.json({ success: false, message: "You must supply a valid cobalt value." });
 
     monsters
-      .extractMonsters(cacheId, searchTerm, homebrew, homebrewOnly, sources)
+      .extractMonsters(cacheId, searchTerm, homebrew, homebrewOnly, sources, campaignId)
       .then((data) => {
         if (excludeLegacy) {
           const filteredMonsters = data.filter((monster) => !monster.isLegacy);
@@ -905,6 +906,7 @@ app.post(getMonsterIdsProxyRoutes, cors(), express.json(), (req, res) => {
   if (!cobalt || cobalt == "") return res.json({ success: false, message: "No cobalt token" });
 
   const ids = req.body.ids;
+  const campaignId = req.body.campaignId ?? null;
   if (!ids) {
     return res.json({
       success: false,
@@ -920,7 +922,7 @@ app.post(getMonsterIdsProxyRoutes, cors(), express.json(), (req, res) => {
     if (!token) return res.json({ success: false, message: "You must supply a valid cobalt value." });
 
     monsters
-      .extractMonstersById(cacheId, ids)
+      .extractMonstersById(cacheId, ids, campaignId)
       .then((data) => {
         return res
           .status(200)
@@ -1319,11 +1321,12 @@ function createServer(options = {}) {
 
             if (element === "monsters-by-id") {
               const ids = Array.isArray(params?.ids) ? params.ids : [];
+              const campaignId = params?.campaignId ?? socket.data.ddbAuth?.campaignId ?? null;
               if (ids.length === 0) throw new Error("Please supply required monster ids.");
 
               // Reuse the auth cache key established during socket auth.
               const authCacheId = authentication.getCacheId(cobalt);
-              const data = await monsters.extractMonstersById(authCacheId, ids);
+              const data = await monsters.extractMonstersById(authCacheId, ids, campaignId);
               emitEvent("monsters", data);
               emitEvent("done", { count: data.length });
               return;
@@ -1337,12 +1340,13 @@ function createServer(options = {}) {
             const exactNameMatch = !!params?.exactMatch;
             const performExactMatch = exactNameMatch && searchTerm && searchTerm !== "";
             const sources = Array.isArray(params?.sources) ? params.sources : [];
+            const campaignId = params?.campaignId ?? socket.data.ddbAuth?.campaignId ?? null;
 
             const hash = crypto.createHash("sha256");
             hash.update(cobalt + searchTerm);
             const cacheId = hash.digest("hex");
 
-            const baseData = await monsters.extractMonsters(cacheId, searchTerm, homebrew, homebrewOnly, sources);
+            const baseData = await monsters.extractMonsters(cacheId, searchTerm, homebrew, homebrewOnly, sources, campaignId);
             const legacyFiltered = excludeLegacy
               ? baseData.filter((monster) => !monster.isLegacy)
               : baseData;

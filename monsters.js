@@ -8,10 +8,10 @@ function getAuthHeaders(cacheId) {
   return token ? { headers: { Authorization: `Bearer ${token}` } } : {};
 }
 
-function getMonsterCount(cobaltId, searchTerm="", homebrew, homebrewOnly, sources) {
+function getMonsterCount(cobaltId, searchTerm="", homebrew, homebrewOnly, sources, campaignId=null) {
   return new Promise((resolve, reject) => {
     const headers = getAuthHeaders(cobaltId);
-    const url = CONFIG.urls.monstersAPI(0,1, searchTerm, homebrew, homebrewOnly, sources);
+    const url = CONFIG.urls.monstersAPI(0,1, searchTerm, homebrew, homebrewOnly, sources, campaignId);
     fetchJsonWithRetry(url, headers, {
       retries: 2,
       timeoutMs: 20000,
@@ -50,7 +50,7 @@ function imageFiddleMonsters(monsters) {
   return imageFiddledMonsters;
 }
 
-const extractMonsters = (cobaltId, searchTerm="", homebrew, homebrewOnly, sources) => {
+const extractMonsters = (cobaltId, searchTerm="", homebrew, homebrewOnly, sources, campaignId=null) => {
   return new Promise((resolve, reject) => {
     console.log(`[ddb-proxy] [monsters] Retrieving monsters for ${cobaltId}`);
 
@@ -59,12 +59,12 @@ const extractMonsters = (cobaltId, searchTerm="", homebrew, homebrewOnly, source
     let count = 0;
     // fetch 100 monsters at a time - api limit
     let take = 100;
-    getMonsterCount(cobaltId, searchTerm, homebrew, homebrewOnly, sources).then(async (total) => {
+    getMonsterCount(cobaltId, searchTerm, homebrew, homebrewOnly, sources, campaignId).then(async (total) => {
       console.log(`[ddb-proxy] [monsters] Total monsters reported: ${total}`);
       const hardTotal = total;
       while (total >= count && hardTotal >= count) {
         console.log(`[ddb-proxy] [monsters] Fetching monster page starting at ${count}`);
-        const url = CONFIG.urls.monstersAPI(count,take,searchTerm, homebrew, homebrewOnly, sources);
+        const url = CONFIG.urls.monstersAPI(count,take,searchTerm, homebrew, homebrewOnly, sources, campaignId);
         await fetchJsonWithRetry(url, headers, {
           retries: 2,
           timeoutMs: 20000,
@@ -107,7 +107,7 @@ async function getIdCount(ids) {
   });
 }
 
-function extractMonstersById (cobaltId, ids) {
+function extractMonstersById (cobaltId, ids, campaignId=null) {
   return new Promise((resolve, reject) => {
     console.log(`[ddb-proxy] [monsters] Retrieving monsters by id for ${cobaltId} (${ids.length} ids)`);
 
@@ -120,7 +120,7 @@ function extractMonstersById (cobaltId, ids) {
       while (total >= count && hardTotal >= count) {
         const idSelection = ids.slice(count, count + take);
         const headers = getAuthHeaders(cobaltId);
-        const url = CONFIG.urls.monsterIdsAPI(idSelection);
+        const url = CONFIG.urls.monsterIdsAPI(idSelection, campaignId);
         await fetchJsonWithRetry(url, headers, {
           retries: 2,
           timeoutMs: 20000,
