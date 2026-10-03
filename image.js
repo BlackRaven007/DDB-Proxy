@@ -29,21 +29,25 @@ function isAllowedHost(host) {
  * (see FileHelper.uploadRemoteImage / cors-strip-protocol + cors-path-prefix settings)
  * So on our side we see the path as /ddb/<host>/<path...>
  */
-function buildTargetUrl(hostParam, restParam) {
+function buildTargetUrl(hostParam, restParam, rawQuery = "") {
   if (!hostParam) return null;
   // Client may optionally send the full URL (cors-strip-protocol = false), guard for it.
+  const query = rawQuery ? `?${rawQuery}` : "";
   if (hostParam.startsWith("http://") || hostParam.startsWith("https://")) {
-    return decodeURIComponent(hostParam + (restParam ? `/${restParam}` : ""));
+    return decodeURIComponent(hostParam + (restParam ? `/${restParam}` : "") + query);
   }
   const rest = restParam ? `/${restParam}` : "";
-  return `https://${hostParam}${rest}`;
+  return `https://${hostParam}${rest}${query}`;
 }
 
 async function imageProxyHandler(req, res) {
   try {
     const hostParam = req.params.host;
     const restParam = req.params[0]; // everything after /ddb/:host/
-    const targetUrl = buildTargetUrl(hostParam, restParam);
+    const rawQuery = req.originalUrl.includes("?")
+      ? req.originalUrl.slice(req.originalUrl.indexOf("?") + 1)
+      : "";
+    const targetUrl = buildTargetUrl(hostParam, restParam, rawQuery);
 
     if (!targetUrl) {
       return res.status(400).send("Missing target host");

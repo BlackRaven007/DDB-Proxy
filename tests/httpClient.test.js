@@ -2,12 +2,38 @@ const test = require("node:test");
 const assert = require("node:assert/strict");
 const http = require("node:http");
 const { fetchJsonWithRetry, getHttpQueueStats, runWithCorrelationId } = require("../httpClient");
-const { isAllowedHost } = require("../image");
+const { isAllowedHost, buildTargetUrl } = require("../image");
 
 test("image proxy allows DDB restricted S3 book host", () => {
   assert.equal(isAllowedHost("h7ktnb-us-east-1-dndbeyond-live-restricted.s3.amazonaws.com"), true);
   assert.equal(isAllowedHost("dndbeyond-live-restricted.s3.amazonaws.com"), true);
   assert.equal(isAllowedHost("example.com"), false);
+});
+
+test("buildTargetUrl preserves signed query string for restricted S3 URLs", () => {
+  const result = buildTargetUrl(
+    "h7ktnb-us-east-1-dndbeyond-live-restricted.s3.amazonaws.com",
+    "mobile/v3/pbtso.zip",
+    "AWSAccessKeyId=AKIA&Signature=abc%2Fdef&X-Amz-Security-Token=tok",
+  );
+
+  assert.equal(
+    result,
+    "https://h7ktnb-us-east-1-dndbeyond-live-restricted.s3.amazonaws.com/mobile/v3/pbtso.zip?AWSAccessKeyId=AKIA&Signature=abc%2Fdef&X-Amz-Security-Token=tok",
+  );
+});
+
+test("buildTargetUrl preserves query for fully-qualified hostParam mode", () => {
+  const result = buildTargetUrl(
+    "https://h7ktnb-us-east-1-dndbeyond-live-restricted.s3.amazonaws.com",
+    "mobile/v3/pbtso.zip",
+    "AWSAccessKeyId=AKIA&Expires=123",
+  );
+
+  assert.equal(
+    result,
+    "https://h7ktnb-us-east-1-dndbeyond-live-restricted.s3.amazonaws.com/mobile/v3/pbtso.zip?AWSAccessKeyId=AKIA&Expires=123",
+  );
 });
 
 function createServer(handler) {
