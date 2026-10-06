@@ -44,6 +44,17 @@ function uniqueNumbers(values) {
   return [...new Set(values.filter((v) => Number.isFinite(v)))];
 }
 
+function normalizeMonsterSearchTerm(value) {
+  const raw = typeof value === "string" ? value : "";
+  if (!raw) return "";
+
+  try {
+    return decodeURIComponent(raw);
+  } catch (_error) {
+    return raw;
+  }
+}
+
 function extractLicenses(payload) {
   const root = payload?.data ?? payload ?? {};
   const licenses = root.Licenses ?? root.licenses ?? [];
@@ -842,8 +853,10 @@ app.post(getMonsterProxyRoutes, cors(), express.json(), (req, res) => {
   const cobalt = req.body.cobalt;
   if (!cobalt || cobalt == "") return res.json({ success: false, message: "No cobalt token" });
 
-  const search = req.body.search ? req.body.search : req.params.search;
-  const searchTerm = req.body.searchTerm ? req.body.searchTerm : req.params.searchTerm;
+  const rawSearch = req.body.search ? req.body.search : req.params.search;
+  const rawSearchTerm = req.body.searchTerm ? req.body.searchTerm : req.params.searchTerm;
+  const search = normalizeMonsterSearchTerm(rawSearch);
+  const searchTerm = normalizeMonsterSearchTerm(rawSearchTerm || rawSearch);
 
   const homebrew = req.body.homebrew ? req.body.homebrew : false;
   const homebrewOnly = req.body.homebrewOnly ? req.body.homebrewOnly : false;
@@ -874,7 +887,8 @@ app.post(getMonsterProxyRoutes, cors(), express.json(), (req, res) => {
       })
       .then((data) => {
         if (performExactMatch) {
-          const filteredMonsters = data.filter((monster) => monster.name.toLowerCase() === search.toLowerCase());
+          const exactName = search || searchTerm;
+          const filteredMonsters = data.filter((monster) => monster.name.toLowerCase() === exactName.toLowerCase());
           return filteredMonsters;
         } else {
           return data;
@@ -1332,8 +1346,8 @@ function createServer(options = {}) {
               return;
             }
 
-            const search = params?.search ?? "";
-            const searchTerm = params?.searchTerm ?? "";
+            const search = normalizeMonsterSearchTerm(params?.search ?? "");
+            const searchTerm = normalizeMonsterSearchTerm(params?.searchTerm ?? params?.search ?? "");
             const homebrew = !!params?.homebrew;
             const homebrewOnly = !!params?.homebrewOnly;
             const excludeLegacy = !!params?.excludeLegacy;
@@ -1351,7 +1365,7 @@ function createServer(options = {}) {
               ? baseData.filter((monster) => !monster.isLegacy)
               : baseData;
             const finalData = performExactMatch
-              ? legacyFiltered.filter((monster) => monster.name.toLowerCase() === search.toLowerCase())
+              ? legacyFiltered.filter((monster) => monster.name.toLowerCase() === (search || searchTerm).toLowerCase())
               : legacyFiltered;
 
             emitEvent("monsters", finalData);

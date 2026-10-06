@@ -50,6 +50,12 @@ function imageFiddleMonsters(monsters) {
   return imageFiddledMonsters;
 }
 
+function isMonsterAvailable(monster, includeHomebrew = false) {
+  const isHomebrew = includeHomebrew && monster.isHomebrew === true;
+  // Some payloads omit isReleased; treat that as available unless explicitly false.
+  return monster.isReleased !== false || isHomebrew;
+}
+
 const extractMonsters = (cobaltId, searchTerm="", homebrew, homebrewOnly, sources, campaignId=null) => {
   return new Promise((resolve, reject) => {
     console.log(`[ddb-proxy] [monsters] Retrieving monsters for ${cobaltId}`);
@@ -73,11 +79,7 @@ const extractMonsters = (cobaltId, searchTerm="", homebrew, homebrewOnly, source
         })
           .then(({ data: json, ok }) => {
             if (!ok) throw new Error(`Monster page fetch failed at offset ${count}`);
-            const availableMonsters = json.data.filter((monster) => {
-              const isHomebrew = (homebrew) ? monster.isHomebrew === true : false;
-              const available = monster.isReleased === true || isHomebrew;
-              return available;
-            });
+            const availableMonsters = json.data.filter((monster) => isMonsterAvailable(monster, homebrew));
             const imageFiddledMonsters = imageFiddleMonsters(availableMonsters);
             monsters.push(...imageFiddledMonsters);
           })
@@ -129,7 +131,7 @@ function extractMonstersById (cobaltId, ids, campaignId=null) {
         })
           .then(({ data: json, ok }) => {
             if (!ok) throw new Error("Monster by-id fetch failed");
-            const availableMonsters = json.data.filter((monster) => monster.isReleased === true || monster.isHomebrew);
+            const availableMonsters = json.data.filter((monster) => isMonsterAvailable(monster, true));
             const imageFiddledMonsters = imageFiddleMonsters(availableMonsters);
             monsters.push(...imageFiddledMonsters);
           })
