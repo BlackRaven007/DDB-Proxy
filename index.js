@@ -93,8 +93,7 @@ function hasEnhancementEntity(entity) {
 function mapOwnedBooksFromContent(payload) {
   const books = extractLicenses(payload)
     .filter(isBookLicense)
-    .flatMap((license) => licenseEntities(license))
-    .filter((entity) => isReleasedEntity(entity) && isOwnedEntity(entity));
+    .flatMap((license) => licenseEntities(license));
 
   const bookIds = uniqueNumbers(books.map((entity) => asNumber(entity?.id ?? entity?.ID ?? entity?.entityId ?? entity?.EntityID)));
   const enhancementBookIds = uniqueNumbers(
@@ -109,8 +108,7 @@ function mapOwnedBooksFromContent(payload) {
 function mapLibraryFromContent(payload, ownedOnly = false) {
   const books = extractLicenses(payload)
     .filter(isBookLicense)
-    .flatMap((license) => licenseEntities(license))
-    .filter((entity) => isReleasedEntity(entity));
+    .flatMap((license) => licenseEntities(license));
 
   const mapped = books
     .map((entity) => {
@@ -208,25 +206,17 @@ function getBearerHeaders(token) {
 }
 
 function sourceIdMatches(definition, sourceIds = []) {
-  if (!Array.isArray(sourceIds) || sourceIds.length === 0) return true;
-  const sourceSet = new Set(sourceIds.map((id) => Number(id)).filter((id) => Number.isFinite(id)));
-  if (sourceSet.size === 0) return true;
-  const sources = Array.isArray(definition?.sources) ? definition.sources : [];
-  if (sources.length === 0) return true;
-  return sources.some((source) => sourceSet.has(Number(source?.sourceId)));
+  // Proxy is intentionally pass-through only. Source filtering is importer policy.
+  return true;
 }
 
 function includeByHomebrew(definition, { includeHomebrew = false, onlyHomebrew = false } = {}) {
-  const isHomebrew = !!definition?.isHomebrew;
-  if (onlyHomebrew) return isHomebrew;
-  if (!includeHomebrew && isHomebrew) return false;
+  // Proxy is intentionally pass-through only. Homebrew policy is importer policy.
   return true;
 }
 
 function isRulesVersionMatch(definition, rulesVersion = null) {
-  if (!rulesVersion) return true;
-  if (rulesVersion === "2014") return !!definition?.isLegacy;
-  if (rulesVersion === "2024") return !definition?.isLegacy;
+  // Proxy is intentionally pass-through only. Version filtering is importer policy.
   return true;
 }
 

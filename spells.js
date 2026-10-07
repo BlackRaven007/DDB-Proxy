@@ -284,19 +284,8 @@ console.log("[ddb-proxy] [spells] Class spell addition info:");
 }
 
 function filterHomebrew(data, includeHomebrew) {
-  if (includeHomebrew) {
-    return data;
-  } else {
-    data.character.classSpells = data.character.classSpells.map((classSpells) => {
-      classSpells.spells = classSpells.spells.filter(spell => !spell.definition.isHomebrew);
-      return classSpells;
-    });
-    data.character.spells.class = data.character.spells.class.filter(spell => !spell.definition || !spell.definition.isHomebrew);
-    data.character.spells.race = data.character.spells.race.filter(spell => !spell.definition || !spell.definition.isHomebrew);
-    data.character.spells.feat = data.character.spells.feat.filter(spell => !spell.definition || !spell.definition.isHomebrew);
-    data.character.spells.item = data.character.spells.item.filter(spell => !spell.definition || !spell.definition.isHomebrew);
-    return data;
-  }
+  // Proxy is intentionally pass-through only. Homebrew policy is enforced by the importer.
+  return data;
 }
 
 
