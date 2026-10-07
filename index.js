@@ -868,6 +868,18 @@ app.post(getMonsterProxyRoutes, cors(), express.json(), (req, res) => {
   const sources = req.body.sources || [];
   const campaignId = req.body.campaignId ?? null;
 
+  console.log("[ddb-proxy] [monster-route] request", {
+    cobalt: "[redacted]",
+    search,
+    searchTerm,
+    homebrew,
+    homebrewOnly,
+    excludeLegacy,
+    exactMatch: exactNameMatch,
+    sources,
+    campaignId,
+  });
+
   const hash = crypto.createHash("sha256");
   hash.update(cobalt + searchTerm);
   const cacheId = hash.digest("hex");
@@ -895,6 +907,16 @@ app.post(getMonsterProxyRoutes, cors(), express.json(), (req, res) => {
         }
       })
       .then((data) => {
+        console.log("[ddb-proxy] [monster-route] response", {
+          requestedSearch: searchTerm,
+          returnedCount: Array.isArray(data) ? data.length : 0,
+          sample: Array.isArray(data) ? data.slice(0, 5).map((monster) => ({
+            id: monster?.id,
+            name: monster?.name,
+            isHomebrew: monster?.isHomebrew,
+            isReleased: monster?.isReleased,
+          })) : [],
+        });
         return res
           .status(200)
           .json({ success: true, message: "All available monsters successfully received.", data: data });
