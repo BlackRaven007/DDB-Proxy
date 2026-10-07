@@ -1378,17 +1378,51 @@ function createServer(options = {}) {
             const sources = Array.isArray(params?.sources) ? params.sources : [];
             const campaignId = params?.campaignId ?? socket.data.ddbAuth?.campaignId ?? null;
 
+            console.log("[ddb-proxy] [socket:/monsters] start request", {
+              cobalt: "[redacted]",
+              search,
+              searchTerm,
+              homebrew,
+              homebrewOnly,
+              excludeLegacy,
+              exactMatch: exactNameMatch,
+              sources,
+              campaignId,
+              element,
+            });
+
             const hash = crypto.createHash("sha256");
             hash.update(cobalt + searchTerm);
             const cacheId = hash.digest("hex");
 
             const baseData = await monsters.extractMonsters(cacheId, searchTerm, homebrew, homebrewOnly, sources, campaignId);
+            console.log("[ddb-proxy] [socket:/monsters] baseData count", {
+              requestedSearch: searchTerm,
+              returnedCount: Array.isArray(baseData) ? baseData.length : 0,
+              sample: Array.isArray(baseData) ? baseData.slice(0, 5).map((monster) => ({
+                id: monster?.id,
+                name: monster?.name,
+                isHomebrew: monster?.isHomebrew,
+                isReleased: monster?.isReleased,
+              })) : [],
+            });
             const legacyFiltered = excludeLegacy
               ? baseData.filter((monster) => !monster.isLegacy)
               : baseData;
             const finalData = performExactMatch
               ? legacyFiltered.filter((monster) => monster.name.toLowerCase() === (search || searchTerm).toLowerCase())
               : legacyFiltered;
+
+            console.log("[ddb-proxy] [socket:/monsters] finalData count", {
+              requestedSearch: searchTerm,
+              returnedCount: Array.isArray(finalData) ? finalData.length : 0,
+              sample: Array.isArray(finalData) ? finalData.slice(0, 5).map((monster) => ({
+                id: monster?.id,
+                name: monster?.name,
+                isHomebrew: monster?.isHomebrew,
+                isReleased: monster?.isReleased,
+              })) : [],
+            });
 
             emitEvent("monsters", finalData);
             emitEvent("done", { count: finalData.length });
